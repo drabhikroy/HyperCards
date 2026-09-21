@@ -1,0 +1,25 @@
+{
+  "name": "hyper-command-cards",
+  "version": "1.0.0",
+  "description": "Visual command cards for Hyper with copy controls, true collapse, searchable history, and matching shell and prompt presets.",
+  "main": "index.js",
+  "author": "Abhik Roy",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/drabhikroy/HyperCards.git"
+  },
+  "homepage": "https://github.com/drabhikroy/HyperCards#readme",
+  "bugs": {
+    "url": "https://github.com/drabhikroy/HyperCards/issues"
+  },
+  "keywords": [
+    "hyper",
+    "terminal",
+    "zsh",
+    "starship",
+    "fzf",
+    "macos"
+  ]
+}

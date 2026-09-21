@@ -1,0 +1,63 @@
+command_timeout = 2000
+add_newline = false
+
+format = """
+[╭─](#56616F)\
+[  ](#A5B8D0)\
+$directory\
+[  ](#56616F)\
+$git_branch\
+$git_status\
+[  ](#56616F)\
+$nodejs\
+$rust\
+$golang\
+$php\
+[  ](#56616F)\
+$time\
+\n[╰─](#56616F)$character"""
+
+[directory]
+style = "fg:#E6E8EA"
+format = "[ $path ]($style)"
+truncation_length = 0
+truncate_to_repo = false
+
+[git_branch]
+symbol = ""
+style = "fg:#AFC4D8"
+format = "[ $symbol $branch ]($style)"
+
+[git_status]
+style = "fg:#AFC4D8"
+format = "[($all_status$ahead_behind )]($style)"
+
+[nodejs]
+symbol = ""
+style = "fg:#95B8AE"
+format = "[ $symbol $version ]($style)"
+
+[rust]
+symbol = ""
+style = "fg:#C9A17A"
+format = "[ $symbol $version ]($style)"
+
+[golang]
+symbol = ""
+style = "fg:#83BFC7"
+format = "[ $symbol $version ]($style)"
+
+[php]
+symbol = ""
+style = "fg:#B6A6CF"
+format = "[ $symbol $version ]($style)"
+
+[time]
+disabled = false
+time_format = "%R"
+style = "fg:#AAB2BA"
+format = "[  $time ]($style)"
+
+[character]
+success_symbol = "[❯](#8FBF88)"
+error_symbol = "[❯](#E07878)"
