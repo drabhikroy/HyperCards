@@ -1899,6 +1899,12 @@ exports.decorateTerm =
         this.clearScreenHandler =
           null;
 
+        this.redrawHandlers =
+          [];
+
+        this.liveRedrawActive =
+          false;
+
         this.resizeHandler =
           null;
 
@@ -1953,6 +1959,10 @@ exports.decorateTerm =
 
         this.handleOsc =
           this.handleOsc
+            .bind(this);
+
+        this.setLiveRedraw =
+          this.setLiveRedraw
             .bind(this);
 
         this.updateLayerTransform =
@@ -2021,6 +2031,9 @@ exports.decorateTerm =
 
             this
               .clearScreenHandler,
+
+            ...this
+              .redrawHandlers,
 
             this
               .resizeHandler,
@@ -2220,6 +2233,16 @@ exports.decorateTerm =
       ) {
         this.overlay =
           element;
+
+        if (this.overlay) {
+          this.overlay
+            .style
+            .visibility =
+              this
+                .liveRedrawActive
+                ? "hidden"
+                : "visible";
+        }
       }
 
       setCardLayer(
@@ -2270,6 +2293,37 @@ exports.decorateTerm =
 
         this
           .findTerminal();
+      }
+
+      setLiveRedraw(
+        active
+      ) {
+        const next =
+          Boolean(active);
+
+        if (
+          this.liveRedrawActive ===
+          next
+        ) {
+          return;
+        }
+
+        this.liveRedrawActive =
+          next;
+
+        if (this.overlay) {
+          this.overlay
+            .style
+            .visibility =
+              next
+                ? "hidden"
+                : "visible";
+        }
+
+        if (!next) {
+          this
+            .scheduleGeometryUpdate();
+        }
       }
 
       findTerminal(
@@ -2404,6 +2458,58 @@ exports.decorateTerm =
                   return false;
                 }
               );
+        }
+
+        if (
+          this.xterm &&
+          this.xterm.parser &&
+          typeof this.xterm
+            .parser
+            .registerCsiHandler ===
+            "function"
+        ) {
+          for (
+            const final
+            of [
+              "A",
+              "F",
+              "H",
+              "f",
+              "K",
+            ]
+          ) {
+            try {
+              const disposable =
+                this.xterm
+                  .parser
+                  .registerCsiHandler(
+                    {
+                      final,
+                    },
+                    () => {
+                      if (
+                        this.outputMarker &&
+                        !this.outputMarker
+                          .isDisposed
+                      ) {
+                        this
+                          .setLiveRedraw(
+                            true
+                          );
+                      }
+
+                      return false;
+                    }
+                  );
+
+              if (disposable) {
+                this.redrawHandlers
+                  .push(
+                    disposable
+                  );
+              }
+            } catch {}
+          }
         }
 
         this.resizeHandler =
@@ -2584,6 +2690,11 @@ exports.decorateTerm =
           message ===
           "hcc;prompt"
         ) {
+          this
+            .setLiveRedraw(
+              false
+            );
+
           this.startCard();
 
           return true;
@@ -2602,6 +2713,11 @@ exports.decorateTerm =
           message ===
           "hcc;done"
         ) {
+          this
+            .setLiveRedraw(
+              false
+            );
+
           this.finishCard();
 
           return true;
