@@ -21,6 +21,7 @@ Each command stays connected to its output, making long terminal sessions easier
 - Places each completed command and its output in a separate card
 - Keeps card controls visible while long output scrolls
 - Copies output, the command, or both together
+- Selects multiple cards and copies their output, commands, or both in terminal order
 - Collapses output and reclaims the terminal rows it occupied
 - Restores collapsed output when needed
 - Removes cards when the terminal is cleared
@@ -35,6 +36,8 @@ Each command stays connected to its output, making long terminal sessions easier
 ## Card controls
 
 Each completed card includes controls in its upper-right corner.
+
+The `○` control selects a card for multi-card copying. It changes to `✓` when the card is selected.
 
 **Copy** copies the card output.
 
@@ -54,6 +57,24 @@ Collapsed cards remove their output rows from the visible terminal rather than s
 
 ![Collapsed card](assets/screenshots/collapsed-card.png)
 
+## Multi-card copy
+
+Multiple cards can be selected and copied together without combining them manually.
+
+Select the `○` control on each card you want to include. Selected cards are marked with `✓` and a compact control bar appears with the number of selected cards.
+
+![Multi-card selection](assets/screenshots/multi-select.png)
+
+The bulk Copy menu provides the same three choices as an individual card:
+
+- Copy output
+- Copy command
+- Copy command + output
+
+Selected cards are copied in their original terminal order, regardless of the order in which they were selected.
+
+A successful bulk copy clears the selection. **Cancel** or `Esc` clears the selection without copying.
+
 ## Keyboard access
 
 Card controls can be used from the keyboard once focus moves into them.
@@ -63,7 +84,7 @@ Card controls can be used from the keyboard once focus moves into them.
 - `Enter` or `Space` activates the selected control
 - Arrow keys move through the Copy menu
 - `Home` and `End` jump within the Copy menu
-- `Esc` returns focus to the terminal
+- `Esc` clears an active multi-card selection or returns focus to the terminal
 
 No default shortcut is assigned for moving focus into the card controls. This avoids taking over another commonly used Hyper or macOS shortcut.
 
@@ -195,6 +216,7 @@ HyperCards/
 │       ├── history-picker.png
 │       ├── hyper-cards-overview.png
 │       ├── long-output.png
+│       ├── multi-select.png
 │       └── prompt-main.png
 ├── fonts/
 │   ├── FiraCodeNerdFontMonoShort76-Regular.ttf
@@ -263,6 +285,12 @@ The following have been tested on macOS:
 
 - card creation
 - copy controls
+- multi-card selection
+- bulk output copying
+- bulk command copying
+- bulk command + output copying
+- terminal-order copying when cards are selected out of order
+- selection clearing with Cancel and `Esc`
 - card collapse and restore
 - terminal-row reclamation after collapse
 - long-output scrolling

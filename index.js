@@ -1893,6 +1893,12 @@ exports.decorateTerm =
         this.cards =
           [];
 
+        this.selectedCards =
+          new Set();
+
+        this.bulkBar =
+          null;
+
         this.oscHandler =
           null;
 
@@ -2136,6 +2142,29 @@ exports.decorateTerm =
       handleCardControlKeyDown(
         event
       ) {
+        if (
+          event.key ===
+            "Escape" &&
+          this.selectedCards
+            .size
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+
+          this
+            .clearCardSelection();
+
+          if (
+            this.xterm &&
+            typeof this.xterm.focus ===
+              "function"
+          ) {
+            this.xterm.focus();
+          }
+
+          return;
+        }
+
         const card =
           this.cards.find(
             (item) =>
@@ -2187,6 +2216,7 @@ exports.decorateTerm =
 
         const buttons =
           [
+            card.selectButton,
             ...copyButtons,
             card.collapseControl &&
               card.collapseControl.button,
@@ -2226,6 +2256,786 @@ exports.decorateTerm =
           buttons.length;
 
         buttons[next].focus();
+      }
+
+      getSelectedCards() {
+        return this.cards
+          .filter(
+            (card) =>
+              this.selectedCards
+                .has(card) &&
+              card.element &&
+              card.element
+                .isConnected
+          );
+      }
+
+      clearCardSelection() {
+        this.selectedCards
+          .clear();
+
+        this
+          .updateSelectionUi();
+      }
+
+      toggleCardSelection(
+        card
+      ) {
+        if (
+          this.selectedCards
+            .has(card)
+        ) {
+          this.selectedCards
+            .delete(card);
+        } else {
+          this.selectedCards
+            .add(card);
+        }
+
+        this
+          .updateSelectionUi();
+      }
+
+      async copySelectedCards(
+        kind
+      ) {
+        const cards =
+          this
+            .getSelectedCards();
+
+        if (!cards.length) {
+          return;
+        }
+
+        let text = "";
+
+        if (
+          kind ===
+          "output"
+        ) {
+          text =
+            cards
+              .map(
+                (card) =>
+                  card.copyOutput ||
+                  ""
+              )
+              .join(
+                "\n\n"
+              );
+        }
+
+        if (
+          kind ===
+          "command"
+        ) {
+          text =
+            cards
+              .map(
+                (card) =>
+                  card.copyCommand ||
+                  ""
+              )
+              .filter(Boolean)
+              .join(
+                "\n"
+              );
+        }
+
+        if (
+          kind ===
+          "command-output"
+        ) {
+          text =
+            cards
+              .map(
+                (card) => {
+                  const parts =
+                    [];
+
+                  if (
+                    card.copyCommand
+                  ) {
+                    parts.push(
+                      card.copyCommand
+                    );
+                  }
+
+                  if (
+                    card.copyOutput
+                  ) {
+                    parts.push(
+                      card.copyOutput
+                    );
+                  }
+
+                  return parts
+                    .join(
+                      "\n"
+                    );
+                }
+              )
+              .filter(Boolean)
+              .join(
+                "\n\n"
+              );
+        }
+
+        if (
+          await writeClipboard(
+            text
+          )
+        ) {
+          this
+            .clearCardSelection();
+        }
+      }
+
+      ensureBulkBar() {
+        if (
+          this.bulkBar &&
+          this.bulkBar
+            .isConnected
+        ) {
+          return this.bulkBar;
+        }
+
+        if (!this.overlay) {
+          return null;
+        }
+
+        const bar =
+          document
+            .createElement(
+              "div"
+            );
+
+        Object.assign(
+          bar.style,
+          {
+            position:
+              "absolute",
+
+            top:
+              "8px",
+
+            left:
+              "50%",
+
+            transform:
+              "translateX(-50%)",
+
+            display:
+              "none",
+
+            alignItems:
+              "center",
+
+            gap:
+              "6px",
+
+            padding:
+              "4px 5px 4px 9px",
+
+            background:
+              "rgba(33, 33, 33, 0.96)",
+
+            border:
+              "1px solid #3D4850",
+
+            borderRadius:
+              "9px",
+
+            boxShadow:
+              "0 4px 14px rgba(0, 0, 0, 0.32)",
+
+            pointerEvents:
+              "auto",
+
+            zIndex:
+              "90",
+          }
+        );
+
+        const count =
+          document
+            .createElement(
+              "span"
+            );
+
+        Object.assign(
+          count.style,
+          {
+            color:
+              "#AAB2BA",
+
+            fontFamily:
+              "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif",
+
+            fontSize:
+              "10.5px",
+
+            lineHeight:
+              "20px",
+
+            whiteSpace:
+              "nowrap",
+          }
+        );
+
+        const copyGroup =
+          document
+            .createElement(
+              "div"
+            );
+
+        Object.assign(
+          copyGroup.style,
+          {
+            position:
+              "relative",
+
+            display:
+              "flex",
+
+            alignItems:
+              "stretch",
+
+            border:
+              "1px solid #3D4850",
+
+            borderRadius:
+              "8px",
+
+            overflow:
+              "visible",
+          }
+        );
+
+        const copyButton =
+          document
+            .createElement(
+              "button"
+            );
+
+        copyButton.type =
+          "button";
+
+        copyButton.textContent =
+          "Copy";
+
+        copyButton.title =
+          "Copy selected output";
+
+        copyButton
+          .setAttribute(
+            "aria-label",
+            "Copy selected output"
+          );
+
+        applyButtonBase(
+          copyButton
+        );
+
+        Object.assign(
+          copyButton.style,
+          {
+            padding:
+              "1px 7px",
+
+            borderRadius:
+              "7px 0 0 7px",
+          }
+        );
+
+        const menuButton =
+          document
+            .createElement(
+              "button"
+            );
+
+        menuButton.type =
+          "button";
+
+        menuButton.textContent =
+          "▼";
+
+        menuButton.title =
+          "Copy selected options";
+
+        menuButton
+          .setAttribute(
+            "aria-label",
+            "Copy selected options"
+          );
+
+        menuButton
+          .setAttribute(
+            "aria-haspopup",
+            "menu"
+          );
+
+        menuButton
+          .setAttribute(
+            "aria-expanded",
+            "false"
+          );
+
+        applyButtonBase(
+          menuButton
+        );
+
+        Object.assign(
+          menuButton.style,
+          {
+            minWidth:
+              "22px",
+
+            padding:
+              "0 5px",
+
+            fontSize:
+              "7px",
+
+            borderLeft:
+              "1px solid #3D4850",
+
+            borderRadius:
+              "0 7px 7px 0",
+          }
+        );
+
+        const menu =
+          document
+            .createElement(
+              "div"
+            );
+
+        menu.setAttribute(
+          "role",
+          "menu"
+        );
+
+        menu.setAttribute(
+          "aria-label",
+          "Copy selected options"
+        );
+
+        Object.assign(
+          menu.style,
+          {
+            position:
+              "absolute",
+
+            top:
+              "28px",
+
+            right:
+              "0",
+
+            display:
+              "none",
+
+            minWidth:
+              "178px",
+
+            padding:
+              "4px",
+
+            background:
+              "#252A30",
+
+            border:
+              "1px solid #3D4850",
+
+            borderRadius:
+              "9px",
+
+            boxShadow:
+              "0 8px 24px rgba(0, 0, 0, 0.38)",
+
+            zIndex:
+              "100",
+          }
+        );
+
+        const closeMenu =
+          () => {
+            menu.style.display =
+              "none";
+
+            menuButton
+              .setAttribute(
+                "aria-expanded",
+                "false"
+              );
+          };
+
+        const options = [
+          [
+            "Copy output",
+            "output",
+          ],
+          [
+            "Copy command",
+            "command",
+          ],
+          [
+            "Copy command + output",
+            "command-output",
+          ],
+        ];
+
+        for (
+          const [
+            label,
+            kind,
+          ]
+          of options
+        ) {
+          const item =
+            document
+              .createElement(
+                "button"
+              );
+
+          item.type =
+            "button";
+
+          item.textContent =
+            label;
+
+          item.setAttribute(
+            "role",
+            "menuitem"
+          );
+
+          applyButtonBase(
+            item
+          );
+
+          Object.assign(
+            item.style,
+            {
+              display:
+                "block",
+
+              width:
+                "100%",
+
+              padding:
+                "5px 7px",
+
+              textAlign:
+                "left",
+
+              borderRadius:
+                "6px",
+            }
+          );
+
+          item
+            .addEventListener(
+              "click",
+              async (event) => {
+                event
+                  .preventDefault();
+
+                event
+                  .stopPropagation();
+
+                closeMenu();
+
+                await this
+                  .copySelectedCards(
+                    kind
+                  );
+              }
+            );
+
+          menu.appendChild(
+            item
+          );
+        }
+
+        copyButton
+          .addEventListener(
+            "click",
+            async (event) => {
+              event
+                .preventDefault();
+
+              event
+                .stopPropagation();
+
+              await this
+                .copySelectedCards(
+                  "output"
+                );
+            }
+          );
+
+        menuButton
+          .addEventListener(
+            "click",
+            (event) => {
+              event
+                .preventDefault();
+
+              event
+                .stopPropagation();
+
+              const open =
+                menu.style
+                  .display ===
+                "block";
+
+              menu.style.display =
+                open
+                  ? "none"
+                  : "block";
+
+              menuButton
+                .setAttribute(
+                  "aria-expanded",
+                  open
+                    ? "false"
+                    : "true"
+                );
+            }
+          );
+
+        const cancelButton =
+          document
+            .createElement(
+              "button"
+            );
+
+        cancelButton.type =
+          "button";
+
+        cancelButton.textContent =
+          "Cancel";
+
+        cancelButton.title =
+          "Cancel card selection";
+
+        cancelButton
+          .setAttribute(
+            "aria-label",
+            "Cancel card selection"
+          );
+
+        applyButtonBase(
+          cancelButton
+        );
+
+        Object.assign(
+          cancelButton.style,
+          {
+            padding:
+              "1px 6px",
+
+            borderRadius:
+              "7px",
+          }
+        );
+
+        cancelButton
+          .addEventListener(
+            "click",
+            (event) => {
+              event
+                .preventDefault();
+
+              event
+                .stopPropagation();
+
+              this
+                .clearCardSelection();
+            }
+          );
+
+        copyGroup.appendChild(
+          copyButton
+        );
+
+        copyGroup.appendChild(
+          menuButton
+        );
+
+        copyGroup.appendChild(
+          menu
+        );
+
+        bar.appendChild(
+          count
+        );
+
+        bar.appendChild(
+          copyGroup
+        );
+
+        bar.appendChild(
+          cancelButton
+        );
+
+        bar._hccCount =
+          count;
+
+        bar._hccMenu =
+          menu;
+
+        bar._hccMenuButton =
+          menuButton;
+
+        this.overlay
+          .appendChild(
+            bar
+          );
+
+        this.bulkBar =
+          bar;
+
+        return bar;
+      }
+
+      updateSelectionUi() {
+        const liveCards =
+          this.cards
+            .filter(
+              (card) =>
+                this.selectedCards
+                  .has(card) &&
+                card.element &&
+                card.element
+                  .isConnected
+            );
+
+        this.selectedCards =
+          new Set(
+            liveCards
+          );
+
+        const selectionActive =
+          this.selectedCards
+            .size > 0;
+
+        for (
+          const card
+          of this.cards
+        ) {
+          const selected =
+            this.selectedCards
+              .has(card);
+
+          if (
+            card.selectButton
+          ) {
+            card.selectButton
+              .textContent =
+                selected
+                  ? "✓"
+                  : "○";
+
+            card.selectButton
+              .setAttribute(
+                "aria-pressed",
+                selected
+                  ? "true"
+                  : "false"
+              );
+
+            card.selectButton
+              .title =
+                selected
+                  ? "Deselect card"
+                  : "Select card";
+
+            card.selectButton
+              .style
+              .color =
+                selected
+                  ? "#DCEBE6"
+                  : "#AAB2BA";
+
+            const hovered =
+              card.controls &&
+              card.controls
+                .matches(
+                  ":hover"
+                );
+
+            card.selectButton
+              .style
+              .opacity =
+                "1";
+          }
+
+          if (
+            card.collapsedShell
+          ) {
+            card.collapsedShell
+              .style
+              .borderColor =
+                selected
+                  ? "#95B8AE"
+                  : "#3D4850";
+          }
+        }
+
+        if (!selectionActive) {
+          if (this.bulkBar) {
+            this.bulkBar
+              .style
+              .display =
+                "none";
+
+            if (
+              this.bulkBar
+                ._hccMenu
+            ) {
+              this.bulkBar
+                ._hccMenu
+                .style
+                .display =
+                  "none";
+            }
+
+            if (
+              this.bulkBar
+                ._hccMenuButton
+            ) {
+              this.bulkBar
+                ._hccMenuButton
+                .setAttribute(
+                  "aria-expanded",
+                  "false"
+                );
+            }
+          }
+
+          return;
+        }
+
+        const bar =
+          this
+            .ensureBulkBar();
+
+        if (!bar) {
+          return;
+        }
+
+        const count =
+          this.selectedCards
+            .size;
+
+        bar._hccCount
+          .textContent =
+            `${count} selected`;
+
+        bar.style.display =
+          "flex";
       }
 
       setOverlay(
@@ -2569,6 +3379,9 @@ exports.decorateTerm =
       }
 
       resetCardsAfterClear() {
+        this
+          .clearCardSelection();
+
         if (
           this.stickyCopyCard &&
           this.stickyCopyCard
@@ -3091,6 +3904,125 @@ exports.decorateTerm =
         card.controls =
           controls;
 
+        const selectButton =
+          document
+            .createElement(
+              "button"
+            );
+
+        selectButton.type =
+          "button";
+
+        selectButton
+          .textContent =
+            "○";
+
+        selectButton.title =
+          "Select card";
+
+        selectButton
+          .setAttribute(
+            "aria-label",
+            "Select card"
+          );
+
+        selectButton
+          .setAttribute(
+            "aria-pressed",
+            "false"
+          );
+
+        applyButtonBase(
+          selectButton
+        );
+
+        Object.assign(
+          selectButton.style,
+          {
+            position:
+              "relative",
+
+            top:
+              "0",
+
+            right:
+              "0",
+
+            width:
+              "22px",
+
+            minWidth:
+              "22px",
+
+            padding:
+              "1px 0",
+
+            background:
+              "rgba(33, 33, 33, 0.88)",
+
+            border:
+              "1px solid #3D4850",
+
+            borderRadius:
+              "8px",
+
+            boxShadow:
+              "0 2px 8px rgba(0, 0, 0, 0.24)",
+
+            opacity:
+              "1",
+          }
+        );
+
+        selectButton
+          .addEventListener(
+            "click",
+            (event) => {
+              event
+                .preventDefault();
+
+              event
+                .stopPropagation();
+
+              this
+                .toggleCardSelection(
+                  card
+                );
+            }
+          );
+
+        controls
+          .addEventListener(
+            "mouseenter",
+            () => {
+              selectButton
+                .style
+                .opacity =
+                  "1";
+            }
+          );
+
+        controls
+          .addEventListener(
+            "mouseleave",
+            () => {
+              if (
+                !this.selectedCards
+                  .size &&
+                !this.selectedCards
+                  .has(card)
+              ) {
+                selectButton
+                  .style
+                  .opacity =
+                    "1";
+              }
+            }
+          );
+
+        card.selectButton =
+          selectButton;
+
         Object.assign(
           copyControl.style,
           {
@@ -3205,6 +4137,10 @@ exports.decorateTerm =
           };
 
         controls.appendChild(
+          selectButton
+        );
+
+        controls.appendChild(
           copyControl
         );
 
@@ -3224,6 +4160,9 @@ exports.decorateTerm =
         this.cards.push(
           card
         );
+
+        this
+          .updateSelectionUi();
 
         this.startMarker =
           null;
@@ -4265,6 +5204,9 @@ exports.decorateTerm =
                 .remove();
             } catch {}
 
+            this.selectedCards
+              .delete(card);
+
             this.cards =
               this.cards
                 .filter(
@@ -4272,6 +5214,9 @@ exports.decorateTerm =
                     item !==
                     card
                 );
+
+            this
+              .updateSelectionUi();
 
             continue;
           }
@@ -4331,7 +5276,12 @@ exports.decorateTerm =
               border:
                 card.collapsed
                   ? "1px solid transparent"
-                  : "1px solid #3D4850",
+                  : (
+                      this.selectedCards
+                        .has(card)
+                        ? "1px solid #95B8AE"
+                        : "1px solid #3D4850"
+                    ),
 
               boxShadow:
                 card.collapsed
