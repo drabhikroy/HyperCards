@@ -115,7 +115,6 @@ When more than one batch is present, each count remains tied to its own group as
 </details>
 
 ## Keyboard access
-## Keyboard access
 
 Card controls can be used from the keyboard once focus moves into them.
 
