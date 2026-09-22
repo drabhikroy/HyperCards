@@ -90,29 +90,13 @@ Hover over or move keyboard focus to the batch badge to reveal its **Copy** cont
 - Copy command
 - Copy command + output
 
-<details>
-<summary>Show batch Copy menu</summary>
-
-<br>
-
-<img src="assets/screenshots/batch-copy-menu.png"
-     alt="Hyper Cards batch Copy menu with output, command, and command plus output options">
-
-</details>
-
 Each command remains a normal Hyper Card with its own selection, Copy, and collapse controls. Batch copying simply provides a second way to work with commands that arrived together.
 
 When more than one batch is present, each count remains tied to its own group as terminal content moves.
 
-<details>
-<summary>Show multiple batch counts</summary>
-
-<br>
-
-<img src="assets/screenshots/batch-count-stack.png"
-     alt="Hyper Cards showing separate numbered command batches while terminal content moves">
-
-</details>
+| Batch Copy menu | Multiple batch counts |
+| --- | --- |
+| <img src="assets/screenshots/batch-copy-menu.png" alt="Hyper Cards batch Copy menu with output, command, and command plus output options"> | <img src="assets/screenshots/batch-count-stack.png" alt="Hyper Cards showing separate numbered command batches while terminal content moves"> |
 
 ## Keyboard access
 
