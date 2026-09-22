@@ -7,6 +7,10 @@ fi
 typeset -g HCC_LOADED=1
 typeset -g HCC_CARD_OPEN=0
 typeset -ga HCC_COMMAND_QUEUE=()
+typeset -gi HCC_GROUP_COUNTER=0
+typeset -g HCC_ACTIVE_GROUP=""
+typeset -gi HCC_GROUP_INDEX=0
+typeset -gi HCC_GROUP_TOTAL=0
 
 PROMPT_EOL_MARK=''
 
@@ -15,6 +19,22 @@ autoload -Uz add-zle-hook-widget
 
 _hcc_preexec() {
   printf '\r\n'
+
+  if [[ -n ${HCC_ACTIVE_GROUP:-} ]]; then
+    printf '\e]777;hcc;group;%s;%d;%d\a' \
+      "$HCC_ACTIVE_GROUP" \
+      "$HCC_GROUP_INDEX" \
+      "$HCC_GROUP_TOTAL"
+
+    if (( HCC_GROUP_INDEX >= HCC_GROUP_TOTAL )); then
+      HCC_ACTIVE_GROUP=""
+      HCC_GROUP_INDEX=0
+      HCC_GROUP_TOTAL=0
+    else
+      HCC_GROUP_INDEX=$(( HCC_GROUP_INDEX + 1 ))
+    fi
+  fi
+
   printf '\e]777;hcc;output\a'
 }
 
@@ -68,6 +88,11 @@ _hcc_accept_line() {
       return
     fi
   done
+
+  HCC_GROUP_COUNTER=$(( HCC_GROUP_COUNTER + 1 ))
+  HCC_ACTIVE_GROUP="$$-$HCC_GROUP_COUNTER"
+  HCC_GROUP_INDEX=1
+  HCC_GROUP_TOTAL=${#hcc_commands[@]}
 
   HCC_COMMAND_QUEUE=()
 
@@ -158,3 +183,10 @@ _hcc_setup_history_picker() {
 
 _hcc_setup_history_picker
 unfunction _hcc_setup_history_picker
+
+# Give a new Hyper shell the same top spacing used after clear.
+if [[ -o interactive && -z ${HCC_STARTUP_PAD_DONE:-} ]]; then
+  typeset -g HCC_STARTUP_PAD_DONE=1
+  printf '\n\n\n'
+fi
+

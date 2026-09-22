@@ -1136,6 +1136,14 @@ function createCopyControl(
 
       if (
         kind ===
+          "command-output" &&
+        typeof card.copyCombined ===
+          "string"
+      ) {
+        text =
+          card.copyCombined;
+      } else if (
+        kind ===
         "command-output"
       ) {
         text =
@@ -1898,6 +1906,12 @@ exports.decorateTerm =
 
         this.bulkBar =
           null;
+
+        this.pendingGroup =
+          null;
+
+        this.commandGroups =
+          new Map();
 
         this.oscHandler =
           null;
@@ -3348,6 +3362,11 @@ exports.decorateTerm =
                   );
 
                 this
+                  .updateCommandGroups(
+                    viewportY
+                  );
+
+                this
                   .updateScrollbar(
                     viewportY
                   );
@@ -3378,9 +3397,680 @@ exports.decorateTerm =
           .scheduleGeometryUpdate();
       }
 
+
+      registerCommandGroup(
+        card
+      ) {
+        if (
+          !card ||
+          !card.groupId ||
+          !card.groupTotal ||
+          card.groupTotal < 2
+        ) {
+          return;
+        }
+
+        let group =
+          this.commandGroups
+            .get(
+              card.groupId
+            );
+
+        if (!group) {
+          group = {
+            id:
+              card.groupId,
+
+            total:
+              card.groupTotal,
+
+            cards:
+              [],
+
+            header:
+              null,
+
+            rail:
+              null,
+
+            label:
+              null,
+
+            copyCard: {
+              copyCommand:
+                "",
+
+              copyOutput:
+                "",
+
+              copyCombined:
+                "",
+            },
+          };
+
+          this.commandGroups
+            .set(
+              card.groupId,
+              group
+            );
+
+          this
+            .createCommandGroupUi(
+              group
+            );
+        }
+
+        if (
+          !group.cards
+            .includes(card)
+        ) {
+          group.cards.push(
+            card
+          );
+        }
+
+        this
+          .updateCommandGroupCopy(
+            group
+          );
+
+        this
+          .scheduleGeometryUpdate();
+      }
+
+      createCommandGroupUi(
+        group
+      ) {
+        if (
+          !this.cardLayer ||
+          group.header
+        ) {
+          return;
+        }
+
+        const rail =
+          document
+            .createElement(
+              "div"
+            );
+
+        rail.className =
+          "hcc-command-group-rail";
+
+        Object.assign(
+          rail.style,
+          {
+            position:
+              "absolute",
+
+            width:
+              "2px",
+
+            background:
+              "rgba(149, 184, 174, 0.48)",
+
+            borderRadius:
+              "999px",
+
+            pointerEvents:
+              "none",
+
+            zIndex:
+              "9",
+          }
+        );
+
+        const header =
+          document
+            .createElement(
+              "div"
+            );
+
+        header.className =
+          "hcc-command-group-header";
+
+        Object.assign(
+          header.style,
+          {
+            position:
+              "absolute",
+
+            display:
+              "flex",
+
+            alignItems:
+              "center",
+
+            gap:
+              "5px",
+
+            padding:
+              "2px 4px",
+
+            background:
+              "rgba(149, 184, 174, 0.14)",
+
+            border:
+              "1px solid rgba(149, 184, 174, 0.72)",
+
+            borderLeft:
+              "3px solid #95B8AE",
+
+            borderRadius:
+              "5px",
+
+            boxShadow:
+              "0 2px 10px rgba(0, 0, 0, 0.28)",
+
+            pointerEvents:
+              "auto",
+
+            zIndex:
+              "35",
+          }
+        );
+
+        const label =
+          document
+            .createElement(
+              "span"
+            );
+
+        Object.assign(
+          label.style,
+          {
+            color:
+              "#D6E6E1",
+
+            fontWeight:
+              "600",
+
+            fontFamily:
+              "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif",
+
+            fontSize:
+              "10.5px",
+
+            lineHeight:
+              "20px",
+
+            whiteSpace:
+              "nowrap",
+          }
+        );
+
+        const copyControl =
+          createCopyControl(
+            group.copyCard
+          );
+
+        const copyDisplay =
+          copyControl.style.display ||
+          "flex";
+
+        copyControl.style.display =
+          "none";
+
+        const showGroupCopy =
+          () => {
+            copyControl.style.display =
+              copyDisplay;
+          };
+
+        const hideGroupCopy =
+          () => {
+            requestAnimationFrame(
+              () => {
+                if (
+                  !header.matches(
+                    ":hover"
+                  ) &&
+                  !header.contains(
+                    document.activeElement
+                  )
+                ) {
+                  copyControl.style.display =
+                    "none";
+                }
+              }
+            );
+          };
+
+        header.tabIndex =
+          0;
+
+        header.addEventListener(
+          "mouseenter",
+          showGroupCopy
+        );
+
+        header.addEventListener(
+          "mouseleave",
+          hideGroupCopy
+        );
+
+        header.addEventListener(
+          "focusin",
+          showGroupCopy
+        );
+
+        header.addEventListener(
+          "focusout",
+          hideGroupCopy
+        );
+
+        const groupCopyMenu =
+          copyControl
+            .querySelector(
+              ".hcc-copy-menu"
+            );
+
+        if (groupCopyMenu) {
+          groupCopyMenu
+            .style
+            .left =
+              "0";
+
+          groupCopyMenu
+            .style
+            .right =
+              "auto";
+        }
+
+        header.appendChild(
+          label
+        );
+
+        header.appendChild(
+          copyControl
+        );
+
+        this.cardLayer
+          .appendChild(
+            rail
+          );
+
+        this.cardLayer
+          .appendChild(
+            header
+          );
+
+        group.rail =
+          rail;
+
+        group.header =
+          header;
+
+        group.label =
+          label;
+      }
+
+      updateCommandGroupCopy(
+        group
+      ) {
+        const clean =
+          (value) =>
+            String(
+              value || ""
+            )
+              .replace(
+                /^(?:[ \t]*\n)+/,
+                ""
+              )
+              .replace(
+                /(?:\n[ \t]*)+$/,
+                ""
+              );
+
+        const cards =
+          group.cards
+            .filter(
+              (card) =>
+                card &&
+                card.element &&
+                card.element
+                  .isConnected
+            )
+            .sort(
+              (a, b) =>
+                (
+                  a.groupIndex || 0
+                ) -
+                (
+                  b.groupIndex || 0
+                )
+            );
+
+        group.copyCard
+          .copyCommand =
+            cards
+              .map(
+                (card) =>
+                  clean(
+                    card.copyCommand
+                  )
+              )
+              .filter(Boolean)
+              .join(
+                "\n"
+              );
+
+        group.copyCard
+          .copyOutput =
+            cards
+              .map(
+                (card) =>
+                  clean(
+                    card.copyOutput
+                  )
+              )
+              .filter(Boolean)
+              .join(
+                "\n\n"
+              );
+
+        group.copyCard
+          .copyCombined =
+            cards
+              .map(
+                (card) => {
+                  const command =
+                    clean(
+                      card.copyCommand
+                    );
+
+                  const output =
+                    clean(
+                      card.copyOutput
+                    );
+
+                  return [
+                    command,
+                    output,
+                  ]
+                    .filter(Boolean)
+                    .join(
+                      "\n"
+                    );
+                }
+              )
+              .filter(Boolean)
+              .join(
+                "\n\n"
+              );
+      }
+
+      updateCommandGroups(
+        viewportY = null
+      ) {
+        if (
+          viewportY === null ||
+          viewportY === undefined
+        ) {
+          try {
+            viewportY =
+              this.xterm
+                .buffer
+                .active
+                .viewportY;
+          } catch {
+            viewportY =
+              this.viewportY;
+          }
+        }
+
+        const scrollOffset =
+          (
+            viewportY || 0
+          ) *
+          (
+            this.cellHeight || 0
+          );
+
+        const viewportTop =
+          this.screenTop || 0;
+
+        const viewportBottom =
+          this.wrapper
+            ? this.wrapper.clientHeight
+            : 0;
+
+        for (
+          const [
+            id,
+            group,
+          ]
+          of [
+            ...this.commandGroups
+              .entries(),
+          ]
+        ) {
+          const cards =
+            group.cards
+              .filter(
+                (card) =>
+                  card &&
+                  card.element &&
+                  card.element
+                    .isConnected &&
+                  card.start &&
+                  !card.start
+                    .isDisposed &&
+                  card.end &&
+                  !card.end
+                    .isDisposed
+              )
+              .sort(
+                (a, b) =>
+                  (
+                    a.groupIndex || 0
+                  ) -
+                  (
+                    b.groupIndex || 0
+                  )
+              );
+
+          group.cards =
+            cards;
+
+          if (!cards.length) {
+            try {
+              group.header
+                ?.remove();
+            } catch {}
+
+            try {
+              group.rail
+                ?.remove();
+            } catch {}
+
+            this.commandGroups
+              .delete(id);
+
+            continue;
+          }
+
+          this
+            .updateCommandGroupCopy(
+              group
+            );
+
+          if (
+            group.label
+          ) {
+            const batchText =
+              cards.length ===
+                group.total
+                ? `${group.total}`
+                : `${cards.length}/${group.total}`;
+
+            group.label
+              .textContent =
+                batchText;
+
+            if (
+              group.header
+            ) {
+              const description =
+                cards.length ===
+                  group.total
+                  ? `${group.total}-command batch`
+                  : `${cards.length} of ${group.total} commands in batch`;
+
+              group.header.title =
+                description;
+
+              group.header
+                .setAttribute(
+                  "aria-label",
+                  `${description}. Focus or hover for copy options.`
+                );
+            }
+          }
+
+          const first =
+            cards[0];
+
+          const last =
+            cards[
+              cards.length - 1
+            ];
+
+          const firstTop =
+            Number.parseFloat(
+              first.element
+                .style
+                .top
+            ) || 0;
+
+          const lastTop =
+            Number.parseFloat(
+              last.element
+                .style
+                .top
+            ) || 0;
+
+          const lastHeight =
+            Number.parseFloat(
+              last.element
+                .style
+                .height
+            ) || 0;
+
+          const lastBottom =
+            lastTop +
+            lastHeight;
+
+          const naturalHeaderTop =
+            Math.max(
+              0,
+              firstTop - 38
+            );
+
+          const headerHeight =
+            (
+              group.header &&
+              group.header.offsetHeight
+            ) || 24;
+
+          const visibleGroupTop =
+            naturalHeaderTop -
+            scrollOffset;
+
+          const visibleGroupBottom =
+            lastBottom -
+            scrollOffset;
+
+          const groupIsVisible =
+            visibleGroupBottom >
+              viewportTop &&
+            (
+              !viewportBottom ||
+              visibleGroupTop <
+                viewportBottom
+            );
+
+          if (
+            group.header
+          ) {
+            const stickyHeaderTop =
+              scrollOffset +
+              viewportTop +
+              6;
+
+            const latestHeaderTop =
+              Math.max(
+                naturalHeaderTop,
+                lastBottom -
+                  headerHeight -
+                  6
+              );
+
+            const headerTop =
+              Math.min(
+                Math.max(
+                  naturalHeaderTop,
+                  stickyHeaderTop
+                ),
+                latestHeaderTop
+              );
+
+            Object.assign(
+              group.header.style,
+              {
+                display:
+                  groupIsVisible
+                    ? "flex"
+                    : "none",
+
+                top:
+                  `${headerTop}px`,
+
+                left:
+                  `${Math.max(
+                    6,
+                    CARD_SIDE_GAP
+                  )}px`,
+              }
+            );
+          }
+
+          if (
+            group.rail
+          ) {
+            Object.assign(
+              group.rail.style,
+              {
+                top:
+                  `${firstTop}px`,
+
+                left:
+                  `${Math.max(
+                    2,
+                    CARD_SIDE_GAP - 5
+                  )}px`,
+
+                height:
+                  `${Math.max(
+                    8,
+                    lastBottom -
+                      firstTop
+                  )}px`,
+              }
+            );
+          }
+        }
+      }
+
       resetCardsAfterClear() {
         this
           .clearCardSelection();
+
+        this.pendingGroup =
+          null;
+
+        this.commandGroups
+          .clear();
 
         if (
           this.stickyCopyCard &&
@@ -3500,6 +4190,54 @@ exports.decorateTerm =
           String(data);
 
         if (
+          message.startsWith(
+            "hcc;group;"
+          )
+        ) {
+          const parts =
+            message.split(
+              ";"
+            );
+
+          const id =
+            parts[2] || "";
+
+          const groupIndex =
+            Number.parseInt(
+              parts[3],
+              10
+            );
+
+          const total =
+            Number.parseInt(
+              parts[4],
+              10
+            );
+
+          this.pendingGroup =
+            (
+              id &&
+              Number.isFinite(
+                groupIndex
+              ) &&
+              Number.isFinite(
+                total
+              ) &&
+              groupIndex > 0 &&
+              total > 1
+            )
+              ? {
+                  id,
+                  index:
+                    groupIndex,
+                  total,
+                }
+              : null;
+
+          return true;
+        }
+
+        if (
           message ===
           "hcc;prompt"
         ) {
@@ -3540,6 +4278,8 @@ exports.decorateTerm =
       }
 
       startCard() {
+        this.pendingGroup =
+          null;
         if (
           !this.xterm
         ) {
@@ -3739,6 +4479,21 @@ exports.decorateTerm =
           copyCommand,
 
           copyOutput,
+
+          groupId:
+            this.pendingGroup
+              ? this.pendingGroup.id
+              : null,
+
+          groupIndex:
+            this.pendingGroup
+              ? this.pendingGroup.index
+              : null,
+
+          groupTotal:
+            this.pendingGroup
+              ? this.pendingGroup.total
+              : null,
 
           collapsed:
             false,
@@ -4160,6 +4915,14 @@ exports.decorateTerm =
         this.cards.push(
           card
         );
+
+        this
+          .registerCommandGroup(
+            card
+          );
+
+        this.pendingGroup =
+          null;
 
         this
           .updateSelectionUi();
@@ -5329,6 +6092,9 @@ exports.decorateTerm =
             );
           }
         }
+
+        this
+          .updateCommandGroups();
 
         this
           .updateLayerTransform(

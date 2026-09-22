@@ -22,6 +22,7 @@ Each command stays connected to its output, making long terminal sessions easier
 - Keeps card controls visible while long output scrolls
 - Copies output, the command, or both together
 - Selects multiple cards and copies their output, commands, or both in terminal order
+- Groups commands from the same multiline paste into a numbered batch with shared copy controls
 - Collapses output and reclaims the terminal rows it occupied
 - Restores collapsed output when needed
 - Removes cards when the terminal is cleared
@@ -75,6 +76,45 @@ Selected cards are copied in their original terminal order, regardless of the or
 
 A successful bulk copy clears the selection. **Cancel** or `Esc` clears the selection without copying.
 
+## Command batches
+
+When several independent commands are pasted together, Hyper Cards keeps each command in its own card and marks the related cards as one batch.
+
+A compact numbered badge sits beside the batch rail. The badge remains associated with the batch as its cards move through the terminal.
+
+![Command batch count](assets/screenshots/batch-count.png)
+
+Hover over or move keyboard focus to the batch badge to reveal its **Copy** control. The batch menu provides the same three choices as an individual card:
+
+- Copy output
+- Copy command
+- Copy command + output
+
+<details>
+<summary>Show batch Copy menu</summary>
+
+<br>
+
+<img src="assets/screenshots/batch-copy-menu.png"
+     alt="Hyper Cards batch Copy menu with output, command, and command plus output options">
+
+</details>
+
+Each command remains a normal Hyper Card with its own selection, Copy, and collapse controls. Batch copying simply provides a second way to work with commands that arrived together.
+
+When more than one batch is present, each count remains tied to its own group as terminal content moves.
+
+<details>
+<summary>Show multiple batch counts</summary>
+
+<br>
+
+<img src="assets/screenshots/batch-count-stack.png"
+     alt="Hyper Cards showing separate numbered command batches while terminal content moves">
+
+</details>
+
+## Keyboard access
 ## Keyboard access
 
 Card controls can be used from the keyboard once focus moves into them.
@@ -139,6 +179,8 @@ printf 'three\n'
 The shell module checks whether each nonblank line is valid zsh syntax on its own.
 
 If it is, the commands are queued and sent one at a time as each new prompt becomes ready.
+
+Commands queued from the same paste are marked as one batch. Each command still keeps its own card and controls.
 
 Some shell structures naturally span several lines. Heredocs are one example.
 
@@ -211,6 +253,9 @@ HyperCards/
 ├── NOTICE
 ├── assets/
 │   └── screenshots/
+│       ├── batch-copy-menu.png
+│       ├── batch-count.png
+│       ├── batch-count-stack.png
 │       ├── collapsed-card.png
 │       ├── copy-menu.png
 │       ├── history-picker.png
@@ -291,6 +336,12 @@ The following have been tested on macOS:
 - bulk command + output copying
 - terminal-order copying when cards are selected out of order
 - selection clearing with Cancel and `Esc`
+- command batch creation from multiline pastes
+- batch-level output copying
+- batch-level command copying
+- batch-level command + output copying
+- batch count tracking while terminal content moves
+- multiple batch counts in the same session
 - card collapse and restore
 - terminal-row reclamation after collapse
 - long-output scrolling
