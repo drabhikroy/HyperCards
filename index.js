@@ -1910,6 +1910,12 @@ exports.decorateTerm =
         this.pendingGroup =
           null;
 
+        this.commandStartedAt =
+          null;
+
+        this.finishTimer =
+          null;
+
         this.commandGroups =
           new Map();
 
@@ -4260,6 +4266,20 @@ exports.decorateTerm =
         this.pendingGroup =
           null;
 
+        this.commandStartedAt =
+          null;
+
+        if (
+          this.finishTimer
+        ) {
+          clearTimeout(
+            this.finishTimer
+          );
+
+          this.finishTimer =
+            null;
+        }
+
         this.commandGroups
           .clear();
 
@@ -4452,6 +4472,44 @@ exports.decorateTerm =
         }
 
         if (
+          message.startsWith(
+            "hcc;result;"
+          )
+        ) {
+          const status =
+            Number.parseInt(
+              message.split(
+                ";"
+              )[2],
+              10
+            );
+
+          if (
+            this.finishTimer
+          ) {
+            clearTimeout(
+              this.finishTimer
+            );
+
+            this.finishTimer =
+              null;
+          }
+
+          this
+            .setLiveRedraw(
+              false
+            );
+
+          this.finishCard(
+            Number.isFinite(status)
+              ? status
+              : null
+          );
+
+          return true;
+        }
+
+        if (
           message ===
           "hcc;done"
         ) {
@@ -4460,7 +4518,26 @@ exports.decorateTerm =
               false
             );
 
-          this.finishCard();
+          if (
+            this.finishTimer
+          ) {
+            clearTimeout(
+              this.finishTimer
+            );
+          }
+
+          this.finishTimer =
+            setTimeout(
+              () => {
+                this.finishTimer =
+                  null;
+
+                this.finishCard(
+                  null
+                );
+              },
+              40
+            );
 
           return true;
         }
@@ -4510,6 +4587,12 @@ exports.decorateTerm =
       }
 
       markOutput() {
+        this.commandStartedAt =
+          typeof performance !==
+            "undefined"
+            ? performance.now()
+            : Date.now();
+
         if (
           !this.xterm
         ) {
@@ -4534,7 +4617,28 @@ exports.decorateTerm =
             );
       }
 
-      finishCard() {
+      finishCard(
+        exitCode = null
+      ) {
+        const finishedAt =
+          typeof performance !==
+            "undefined"
+            ? performance.now()
+            : Date.now();
+
+        const durationMs =
+          this.commandStartedAt ===
+            null
+            ? null
+            : Math.max(
+                0,
+                finishedAt -
+                  this.commandStartedAt
+              );
+
+        this.commandStartedAt =
+          null;
+
         if (
           this.xterm &&
           this.startMarker &&
@@ -4670,6 +4774,10 @@ exports.decorateTerm =
           copyCommand,
 
           copyOutput,
+
+          exitCode,
+
+          durationMs,
 
           groupId:
             this.pendingGroup
@@ -4834,6 +4942,148 @@ exports.decorateTerm =
               "30",
           }
         );
+
+        const statusLabel =
+          document
+            .createElement(
+              "span"
+            );
+
+        const hasExitCode =
+          Number.isInteger(
+            card.exitCode
+          );
+
+        const success =
+          hasExitCode &&
+          card.exitCode === 0;
+
+        const durationText =
+          card.durationMs !==
+            null &&
+          card.durationMs >= 1000
+            ? (
+                card.durationMs <
+                  10000
+                  ? `${(
+                      card.durationMs /
+                      1000
+                    ).toFixed(1)}s`
+                  : card.durationMs <
+                      60000
+                    ? `${Math.round(
+                        card.durationMs /
+                          1000
+                      )}s`
+                    : `${Math.floor(
+                        card.durationMs /
+                          60000
+                      )}m ${Math.round(
+                        (
+                          card.durationMs %
+                          60000
+                        ) /
+                          1000
+                      )}s`
+              )
+            : "";
+
+        if (hasExitCode) {
+          const statusText =
+            success
+              ? "✓ Success"
+              : `! Failed · code ${card.exitCode}`;
+
+          statusLabel.textContent =
+            durationText
+              ? `${statusText} · ${durationText}`
+              : statusText;
+
+          statusLabel.title =
+            success
+              ? (
+                  durationText
+                    ? `Command completed successfully in ${durationText}`
+                    : "Command completed successfully"
+                )
+              : (
+                  durationText
+                    ? `Command failed with exit code ${card.exitCode} after ${durationText}`
+                    : `Command failed with exit code ${card.exitCode}`
+                );
+
+          statusLabel
+            .setAttribute(
+              "aria-label",
+              statusLabel.title
+            );
+        } else if (
+          durationText
+        ) {
+          statusLabel.textContent =
+            durationText;
+
+          statusLabel.title =
+            `Command completed in ${durationText}`;
+
+          statusLabel
+            .setAttribute(
+              "aria-label",
+              statusLabel.title
+            );
+        }
+
+        Object.assign(
+          statusLabel.style,
+          {
+            display:
+              statusLabel.textContent
+                ? "inline-flex"
+                : "none",
+
+            alignItems:
+              "center",
+
+            alignSelf:
+              "center",
+
+            minHeight:
+              "20px",
+
+            padding:
+              "1px 2px",
+
+            color:
+              hasExitCode
+                ? (
+                    success
+                      ? "#A9C9A3"
+                      : "#D8A2A2"
+                  )
+                : "#AAB2BA",
+
+            fontFamily:
+              "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif",
+
+            fontSize:
+              "10.5px",
+
+            lineHeight:
+              "16px",
+
+            fontWeight:
+              "500",
+
+            whiteSpace:
+              "nowrap",
+
+            pointerEvents:
+              "none",
+          }
+        );
+
+        card.statusLabel =
+          statusLabel;
 
         const copyControl =
           createCopyControl(card);
@@ -5084,6 +5334,10 @@ exports.decorateTerm =
 
         controls.appendChild(
           selectButton
+        );
+
+        controls.appendChild(
+          statusLabel
         );
 
         controls.appendChild(

@@ -39,9 +39,12 @@ _hcc_preexec() {
 }
 
 _hcc_precmd() {
+  local hcc_status=$?
+
   if (( HCC_CARD_OPEN )); then
     printf '\r\n'
     printf '\e]777;hcc;done\a'
+    printf '\e]777;hcc;result;%d\a' "$hcc_status"
     printf '\r\n\r\n'
   fi
 
