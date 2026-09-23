@@ -1919,6 +1919,12 @@ exports.decorateTerm =
         this.searchQuery =
           "";
 
+        this.cardsMenuRoot =
+          null;
+
+        this.cardsMenuPanel =
+          null;
+
         this.pendingGroup =
           null;
 
@@ -2196,6 +2202,23 @@ exports.decorateTerm =
         if (
           event.key ===
             "Escape" &&
+          this.cardsMenuPanel &&
+          this.cardsMenuPanel.style
+            .display !==
+            "none"
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+
+          this
+            .closeCardsMenu();
+
+          return;
+        }
+
+        if (
+          event.key ===
+            "Escape" &&
           this.searchBar &&
           this.searchBar.style
             .display !==
@@ -2326,6 +2349,451 @@ exports.decorateTerm =
         buttons[next].focus();
       }
 
+
+
+      ensureCardsMenu() {
+        if (
+          this.cardsMenuRoot &&
+          this.cardsMenuRoot
+            .isConnected
+        ) {
+          return this.cardsMenuRoot;
+        }
+
+        if (!this.overlay) {
+          return null;
+        }
+
+        const root =
+          document
+            .createElement(
+              "div"
+            );
+
+        root.className =
+          "hcc-cards-menu";
+
+        Object.assign(
+          root.style,
+          {
+            position:
+              "absolute",
+
+            top:
+              "10px",
+
+            right:
+              "16px",
+
+            display:
+              "none",
+
+            zIndex:
+              "45",
+
+            pointerEvents:
+              "auto",
+          }
+        );
+
+        const trigger =
+          document
+            .createElement(
+              "button"
+            );
+
+        trigger.type =
+          "button";
+
+        trigger.textContent =
+          "Cards ▾";
+
+        trigger.title =
+          "Card actions";
+
+        trigger.setAttribute(
+          "aria-label",
+          "Card actions"
+        );
+
+        trigger.setAttribute(
+          "aria-haspopup",
+          "menu"
+        );
+
+        trigger.setAttribute(
+          "aria-expanded",
+          "false"
+        );
+
+        applyButtonBase(
+          trigger
+        );
+
+        Object.assign(
+          trigger.style,
+          {
+            padding:
+              "4px 8px",
+
+            borderRadius:
+              "8px",
+
+            background:
+              "rgba(33, 33, 33, 0.96)",
+          }
+        );
+
+        const panel =
+          document
+            .createElement(
+              "div"
+            );
+
+        panel.setAttribute(
+          "role",
+          "menu"
+        );
+
+        panel.setAttribute(
+          "aria-label",
+          "Card actions"
+        );
+
+        Object.assign(
+          panel.style,
+          {
+            position:
+              "absolute",
+
+            top:
+              "calc(100% + 6px)",
+
+            right:
+              "0",
+
+            display:
+              "none",
+
+            flexDirection:
+              "column",
+
+            gap:
+              "2px",
+
+            minWidth:
+              "132px",
+
+            padding:
+              "5px",
+
+            background:
+              "rgba(33, 33, 33, 0.98)",
+
+            border:
+              "1px solid #3D4850",
+
+            borderRadius:
+              "9px",
+
+            boxShadow:
+              "0 6px 20px rgba(0, 0, 0, 0.34)",
+          }
+        );
+
+        const addAction =
+          (
+            label,
+            action
+          ) => {
+            const button =
+              document
+                .createElement(
+                  "button"
+                );
+
+            button.type =
+              "button";
+
+            button.textContent =
+              label;
+
+            button.setAttribute(
+              "role",
+              "menuitem"
+            );
+
+            applyButtonBase(
+              button
+            );
+
+            Object.assign(
+              button.style,
+              {
+                width:
+                  "100%",
+
+                justifyContent:
+                  "flex-start",
+
+                padding:
+                  "5px 7px",
+
+                borderRadius:
+                  "6px",
+
+                textAlign:
+                  "left",
+              }
+            );
+
+            button.addEventListener(
+              "click",
+              (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+
+                action();
+
+                this
+                  .closeCardsMenu();
+              }
+            );
+
+            panel.appendChild(
+              button
+            );
+          };
+
+        addAction(
+          "Search cards",
+          () => {
+            this
+              .openCardSearch();
+          }
+        );
+
+        addAction(
+          "Collapse all",
+          () => {
+            this
+              .setAllCardsCollapsed(
+                true
+              );
+          }
+        );
+
+        addAction(
+          "Expand all",
+          () => {
+            this
+              .setAllCardsCollapsed(
+                false
+              );
+          }
+        );
+
+        trigger.addEventListener(
+          "click",
+          (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+
+            const open =
+              panel.style
+                .display !==
+                "none";
+
+            panel.style.display =
+              open
+                ? "none"
+                : "flex";
+
+            trigger
+              .setAttribute(
+                "aria-expanded",
+                open
+                  ? "false"
+                  : "true"
+              );
+          }
+        );
+
+        root.addEventListener(
+          "focusout",
+          () => {
+            requestAnimationFrame(
+              () => {
+                if (
+                  !root.contains(
+                    document.activeElement
+                  )
+                ) {
+                  this
+                    .closeCardsMenu();
+                }
+              }
+            );
+          }
+        );
+
+        root.appendChild(
+          trigger
+        );
+
+        root.appendChild(
+          panel
+        );
+
+        this.overlay
+          .appendChild(
+            root
+          );
+
+        this.cardsMenuRoot =
+          root;
+
+        this.cardsMenuPanel =
+          panel;
+
+        this.cardsMenuTrigger =
+          trigger;
+
+        return root;
+      }
+
+      closeCardsMenu() {
+        if (
+          this.cardsMenuPanel
+        ) {
+          this.cardsMenuPanel
+            .style
+            .display =
+              "none";
+        }
+
+        if (
+          this.cardsMenuTrigger
+        ) {
+          this.cardsMenuTrigger
+            .setAttribute(
+              "aria-expanded",
+              "false"
+            );
+        }
+      }
+
+      updateCardsMenuVisibility() {
+        const root =
+          this
+            .ensureCardsMenu();
+
+        if (!root) {
+          return;
+        }
+
+        const searchOpen =
+          this.searchBar &&
+          this.searchBar.style
+            .display !==
+            "none";
+
+        const hasCards =
+          this.cards.some(
+            (card) =>
+              card.element &&
+              card.element
+                .isConnected
+          );
+
+        root.style.display =
+          hasCards &&
+          !searchOpen
+            ? "block"
+            : "none";
+
+        if (
+          !hasCards ||
+          searchOpen
+        ) {
+          this
+            .closeCardsMenu();
+        }
+      }
+
+      setAllCardsCollapsed(
+        collapsed
+      ) {
+        const nextCollapsed =
+          Boolean(
+            collapsed
+          );
+
+        const cards =
+          this.cards
+            .filter(
+              (card) =>
+                card &&
+                card.start &&
+                !card.start
+                  .isDisposed &&
+                typeof card
+                  .setCollapsed ===
+                  "function"
+            )
+            .sort(
+              (a, b) =>
+                a.start.line -
+                b.start.line
+            );
+
+        const ordered =
+          nextCollapsed
+            ? [
+                ...cards,
+              ].reverse()
+            : cards;
+
+        for (
+          const card
+          of ordered
+        ) {
+          if (
+            Boolean(
+              card.collapsed
+            ) !==
+            nextCollapsed
+          ) {
+            card
+              .setCollapsed(
+                nextCollapsed
+              );
+          }
+        }
+
+        for (
+          const group
+          of this.commandGroups
+            .values()
+        ) {
+          this
+            .updateCommandGroupCollapse(
+              group
+            );
+        }
+
+        this
+          .scheduleGeometryUpdate();
+
+        if (
+          this.xterm &&
+          typeof this.xterm
+            .focus ===
+            "function"
+        ) {
+          this.xterm.focus();
+        }
+      }
 
       ensureSearchPromptShade() {
         if (
@@ -2771,6 +3239,18 @@ exports.decorateTerm =
         bar.style.display =
           "flex";
 
+        this
+          .closeCardsMenu();
+
+        if (
+          this.cardsMenuRoot
+        ) {
+          this.cardsMenuRoot
+            .style
+            .display =
+              "none";
+        }
+
         this.searchInput.value =
           "";
 
@@ -2889,6 +3369,9 @@ exports.decorateTerm =
           .updateSearchPromptShade(
             false
           );
+
+        this
+          .updateCardsMenuVisibility();
 
         if (
           focusTerminal &&
@@ -5113,6 +5596,18 @@ exports.decorateTerm =
           );
 
         this
+          .closeCardsMenu();
+
+        if (
+          this.cardsMenuRoot
+        ) {
+          this.cardsMenuRoot
+            .style
+            .display =
+              "none";
+        }
+
+        this
           .clearCardSelection();
 
         this.pendingGroup =
@@ -6212,6 +6707,9 @@ exports.decorateTerm =
         this.cards.push(
           card
         );
+
+        this
+          .updateCardsMenuVisibility();
 
         if (
           this.searchBar &&
