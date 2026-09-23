@@ -1,0 +1,13 @@
+printf 'New achievement! You can read!\n'
+seq 1 5
+python3 -c "import math; print(math.tau)"
+uname -s
+printf 'one\ntwo\nthree\n'
+echo 'I got a nautical themed pashmina afghan'
+
+
+echo "terminal cards" | tr '[:lower:]' '[:upper:]'
+printf "banana\npotassium\nanti-matter\n" | sort
+cal 9 2026
+~/.sympy/bin/python -c 'from sympy.combinatorics.named_groups import DihedralGroup; names={3:"triangle",4:"square",5:"pentagon"}; [print(f"DihedralGroup({n})   {names[n]}   order {DihedralGroup(n).order()}") for n in names]'
+python3 -c 'import math; w,h=64,28; g=[[" "]*w for _ in range(h)]; [(lambda t,r:(g[round(h/2+r*math.sin(t))].__setitem__(round(w/2+2.2*r*math.cos(t)),"•") if 0<=round(w/2+2.2*r*math.cos(t))<w and 0<=round(h/2+r*math.sin(t))<h else None))(i*.07,.18*math.exp(.16*i*.07)) for i in range(360)]; print("\n".join("".join(x).rstrip() for x in g))'

@@ -3608,13 +3608,54 @@ exports.decorateTerm =
           copyControl.style.display ||
           "flex";
 
+        group.collapseCard = {
+          collapsed:
+            false,
+
+          setCollapsed:
+            (collapsed) => {
+              this
+                .setCommandGroupCollapsed(
+                  group,
+                  collapsed
+                );
+            },
+        };
+
+        const collapseControl =
+          createCollapseControl(
+            group.collapseCard
+          );
+
+        collapseControl
+          .button
+          .title =
+            "Collapse batch";
+
+        collapseControl
+          .button
+          .setAttribute(
+            "aria-label",
+            "Collapse batch"
+          );
+
+        const collapseDisplay =
+          collapseControl.style.display ||
+          "flex";
+
         copyControl.style.display =
+          "none";
+
+        collapseControl.style.display =
           "none";
 
         const showGroupCopy =
           () => {
             copyControl.style.display =
               copyDisplay;
+
+            collapseControl.style.display =
+              collapseDisplay;
           };
 
         const hideGroupCopy =
@@ -3630,6 +3671,9 @@ exports.decorateTerm =
                   )
                 ) {
                   copyControl.style.display =
+                    "none";
+
+                  collapseControl.style.display =
                     "none";
                 }
               }
@@ -3685,6 +3729,10 @@ exports.decorateTerm =
           copyControl
         );
 
+        header.appendChild(
+          collapseControl
+        );
+
         this.cardLayer
           .appendChild(
             rail
@@ -3703,6 +3751,144 @@ exports.decorateTerm =
 
         group.label =
           label;
+
+        group.collapseControl =
+          collapseControl;
+      }
+
+      setCommandGroupCollapsed(
+        group,
+        collapsed
+      ) {
+        if (!group) {
+          return;
+        }
+
+        const nextCollapsed =
+          Boolean(
+            collapsed
+          );
+
+        const cards =
+          group.cards
+            .filter(
+              (card) =>
+                card &&
+                card.start &&
+                !card.start
+                  .isDisposed &&
+                typeof card
+                  .setCollapsed ===
+                  "function"
+            )
+            .sort(
+              (a, b) =>
+                a.start.line -
+                b.start.line
+            );
+
+        const orderedCards =
+          nextCollapsed
+            ? [
+                ...cards,
+              ].reverse()
+            : cards;
+
+        for (
+          const card
+          of orderedCards
+        ) {
+          if (
+            Boolean(
+              card.collapsed
+            ) !==
+            nextCollapsed
+          ) {
+            card
+              .setCollapsed(
+                nextCollapsed
+              );
+          }
+        }
+
+        this
+          .updateCommandGroupCollapse(
+            group
+          );
+
+        this
+          .scheduleGeometryUpdate();
+      }
+
+      updateCommandGroupCollapse(
+        group
+      ) {
+        if (!group) {
+          return;
+        }
+
+        const cards =
+          group.cards
+            .filter(
+              (card) =>
+                card &&
+                card.element &&
+                card.element
+                  .isConnected
+            );
+
+        const allCollapsed =
+          cards.length > 0 &&
+          cards.every(
+            (card) =>
+              Boolean(
+                card.collapsed
+              )
+          );
+
+        group.collapsed =
+          allCollapsed;
+
+        if (
+          group.collapseCard
+        ) {
+          group.collapseCard
+            .collapsed =
+              allCollapsed;
+        }
+
+        const button =
+          group.collapseControl &&
+          group.collapseControl
+            .button;
+
+        if (!button) {
+          return;
+        }
+
+        button.textContent =
+          allCollapsed
+            ? "+"
+            : "−";
+
+        button.title =
+          allCollapsed
+            ? "Expand batch"
+            : "Collapse batch";
+
+        button
+          .setAttribute(
+            "aria-label",
+            button.title
+          );
+
+        button
+          .setAttribute(
+            "aria-expanded",
+            allCollapsed
+              ? "false"
+              : "true"
+          );
       }
 
       updateCommandGroupCopy(
@@ -3895,6 +4081,11 @@ exports.decorateTerm =
               group
             );
 
+          this
+            .updateCommandGroupCollapse(
+              group
+            );
+
           if (
             group.label
           ) {
@@ -3923,7 +4114,7 @@ exports.decorateTerm =
               group.header
                 .setAttribute(
                   "aria-label",
-                  `${description}. Focus or hover for copy options.`
+                  `${description}. Focus or hover for batch controls.`
                 );
             }
           }
