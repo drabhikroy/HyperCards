@@ -1907,6 +1907,18 @@ exports.decorateTerm =
         this.bulkBar =
           null;
 
+        this.searchBar =
+          null;
+
+        this.searchInput =
+          null;
+
+        this.searchCount =
+          null;
+
+        this.searchQuery =
+          "";
+
         this.pendingGroup =
           null;
 
@@ -2163,6 +2175,42 @@ exports.decorateTerm =
         event
       ) {
         if (
+          event.metaKey &&
+          event.shiftKey &&
+          !event.altKey &&
+          !event.ctrlKey &&
+          String(
+            event.key
+          ).toLowerCase() ===
+            "f"
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+
+          this
+            .openCardSearch();
+
+          return;
+        }
+
+        if (
+          event.key ===
+            "Escape" &&
+          this.searchBar &&
+          this.searchBar.style
+            .display !==
+            "none"
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+
+          this
+            .closeCardSearch();
+
+          return;
+        }
+
+        if (
           event.key ===
             "Escape" &&
           this.selectedCards
@@ -2276,6 +2324,805 @@ exports.decorateTerm =
           buttons.length;
 
         buttons[next].focus();
+      }
+
+
+      ensureSearchPromptShade() {
+        if (
+          this.searchPromptShade &&
+          this.searchPromptShade
+            .isConnected
+        ) {
+          return this.searchPromptShade;
+        }
+
+        if (!this.cardLayer) {
+          return null;
+        }
+
+        const shade =
+          document
+            .createElement(
+              "div"
+            );
+
+        Object.assign(
+          shade.style,
+          {
+            position:
+              "absolute",
+
+            left:
+              "0",
+
+            right:
+              "0",
+
+            display:
+              "none",
+
+            background:
+              "rgba(33, 33, 33, 0.38)",
+
+            pointerEvents:
+              "none",
+
+            zIndex:
+              "20",
+          }
+        );
+
+        this.cardLayer
+          .appendChild(
+            shade
+          );
+
+        this.searchPromptShade =
+          shade;
+
+        return shade;
+      }
+
+      updateSearchPromptShade(
+        visible
+      ) {
+        const shade =
+          this
+            .ensureSearchPromptShade();
+
+        if (
+          !shade ||
+          !visible ||
+          !this.xterm ||
+          !this.startMarker ||
+          this.startMarker
+            .isDisposed ||
+          !this.cellHeight
+        ) {
+          if (shade) {
+            shade.style.display =
+              "none";
+          }
+
+          return;
+        }
+
+        const buffer =
+          this.xterm
+            .buffer
+            .active;
+
+        const cursorLine =
+          (buffer.baseY || 0) +
+          (buffer.cursorY || 0);
+
+        const startLine =
+          this.startMarker.line;
+
+        if (
+          startLine >
+          cursorLine
+        ) {
+          shade.style.display =
+            "none";
+
+          return;
+        }
+
+        const rows =
+          Math.max(
+            1,
+            cursorLine -
+              startLine +
+              1
+          );
+
+        Object.assign(
+          shade.style,
+          {
+            display:
+              "block",
+
+            top:
+              `${
+                this.screenTop +
+                startLine *
+                  this.cellHeight
+              }px`,
+
+            height:
+              `${
+                rows *
+                this.cellHeight
+              }px`,
+          }
+        );
+      }
+
+      ensureCardSearch() {
+        if (
+          this.searchBar &&
+          this.searchBar.isConnected
+        ) {
+          return this.searchBar;
+        }
+
+        if (!this.overlay) {
+          return null;
+        }
+
+        const bar =
+          document
+            .createElement(
+              "div"
+            );
+
+        bar.className =
+          "hcc-card-search";
+
+        bar.setAttribute(
+          "role",
+          "search"
+        );
+
+        bar.setAttribute(
+          "aria-label",
+          "Search Hyper Cards"
+        );
+
+        Object.assign(
+          bar.style,
+          {
+            position:
+              "absolute",
+
+            top:
+              "10px",
+
+            right:
+              "16px",
+
+            display:
+              "none",
+
+            alignItems:
+              "center",
+
+            gap:
+              "7px",
+
+            padding:
+              "5px 6px 5px 9px",
+
+            background:
+              "rgba(33, 33, 33, 0.97)",
+
+            border:
+              "1px solid #3D4850",
+
+            borderRadius:
+              "10px",
+
+            boxShadow:
+              "0 6px 20px rgba(0, 0, 0, 0.34)",
+
+            pointerEvents:
+              "auto",
+
+            zIndex:
+              "50",
+          }
+        );
+
+        const label =
+          document
+            .createElement(
+              "span"
+            );
+
+        label.textContent =
+          "Search cards";
+
+        Object.assign(
+          label.style,
+          {
+            color:
+              "#D8DDE2",
+
+            fontFamily:
+              "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif",
+
+            fontSize:
+              "10.5px",
+
+            fontWeight:
+              "600",
+
+            whiteSpace:
+              "nowrap",
+          }
+        );
+
+        const input =
+          document
+            .createElement(
+              "input"
+            );
+
+        input.type =
+          "search";
+
+        input.placeholder =
+          "Search commands and output";
+
+        input.setAttribute(
+          "aria-label",
+          "Search commands and output"
+        );
+
+        Object.assign(
+          input.style,
+          {
+            width:
+              "230px",
+
+            minWidth:
+              "120px",
+
+            padding:
+              "4px 7px",
+
+            border:
+              "1px solid #4A555E",
+
+            borderRadius:
+              "7px",
+
+            background:
+              "#191C20",
+
+            color:
+              "#E6E8EA",
+
+            fontFamily:
+              "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif",
+
+            fontSize:
+              "11px",
+
+            lineHeight:
+              "16px",
+
+            outline:
+              "none",
+          }
+        );
+
+        const count =
+          document
+            .createElement(
+              "span"
+            );
+
+        count.setAttribute(
+          "aria-live",
+          "polite"
+        );
+
+        Object.assign(
+          count.style,
+          {
+            minWidth:
+              "62px",
+
+            color:
+              "#AAB2BA",
+
+            fontFamily:
+              "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif",
+
+            fontSize:
+              "10.5px",
+
+            textAlign:
+              "right",
+
+            whiteSpace:
+              "nowrap",
+          }
+        );
+
+        const close =
+          document
+            .createElement(
+              "button"
+            );
+
+        close.type =
+          "button";
+
+        close.textContent =
+          "Close";
+
+        close.title =
+          "Close card search";
+
+        close.setAttribute(
+          "aria-label",
+          "Close card search"
+        );
+
+        applyButtonBase(
+          close
+        );
+
+        Object.assign(
+          close.style,
+          {
+            padding:
+              "3px 6px",
+
+            borderRadius:
+              "7px",
+          }
+        );
+
+        input.addEventListener(
+          "input",
+          () => {
+            this
+              .updateCardSearch(
+                input.value
+              );
+          }
+        );
+
+        input.addEventListener(
+          "focus",
+          () => {
+            input.style
+              .borderColor =
+                "#95B8AE";
+          }
+        );
+
+        input.addEventListener(
+          "blur",
+          () => {
+            input.style
+              .borderColor =
+                "#4A555E";
+          }
+        );
+
+        close.addEventListener(
+          "click",
+          (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+
+            this
+              .closeCardSearch();
+          }
+        );
+
+        bar.appendChild(
+          label
+        );
+
+        bar.appendChild(
+          input
+        );
+
+        bar.appendChild(
+          count
+        );
+
+        bar.appendChild(
+          close
+        );
+
+        this.overlay
+          .appendChild(
+            bar
+          );
+
+        this.searchBar =
+          bar;
+
+        this.searchInput =
+          input;
+
+        this.searchCount =
+          count;
+
+        return bar;
+      }
+
+      openCardSearch() {
+        const bar =
+          this
+            .ensureCardSearch();
+
+        if (!bar) {
+          return;
+        }
+
+        bar.style.display =
+          "flex";
+
+        this.searchInput.value =
+          "";
+
+        this
+          .updateCardSearch(
+            ""
+          );
+
+        requestAnimationFrame(
+          () => {
+            this.searchInput
+              .focus();
+
+            this.searchInput
+              .select();
+          }
+        );
+      }
+
+      closeCardSearch(
+        focusTerminal = true
+      ) {
+        this.searchQuery =
+          "";
+
+        if (
+          this.searchInput
+        ) {
+          this.searchInput.value =
+            "";
+        }
+
+        if (
+          this.searchBar
+        ) {
+          this.searchBar
+            .style
+            .display =
+              "none";
+        }
+
+        for (
+          const card
+          of this.cards
+        ) {
+          if (
+            card.element &&
+            card.element
+              .isConnected
+          ) {
+            card.element
+              .style
+              .opacity =
+                "1";
+
+            card.element
+              .style
+              .filter =
+                "none";
+
+            card.element
+              .style
+              .outline =
+                "none";
+
+            card.element
+              .style
+              .boxShadow =
+                "";
+
+            if (
+              card.controls
+            ) {
+              card.controls
+                .style
+                .opacity =
+                  "1";
+            }
+
+            if (
+              card.searchShade
+            ) {
+              card.searchShade
+                .style
+                .display =
+                  "none";
+            }
+          }
+        }
+
+        for (
+          const group
+          of this.commandGroups
+            .values()
+        ) {
+          if (
+            group.header
+          ) {
+            group.header
+              .style
+              .opacity =
+                "1";
+          }
+
+          if (
+            group.rail
+          ) {
+            group.rail
+              .style
+              .opacity =
+                "1";
+          }
+        }
+
+        this
+          .updateSearchPromptShade(
+            false
+          );
+
+        if (
+          focusTerminal &&
+          this.xterm &&
+          typeof this.xterm
+            .focus ===
+            "function"
+        ) {
+          this.xterm.focus();
+        }
+      }
+
+      updateCardSearch(
+        query
+      ) {
+        const normalized =
+          String(
+            query || ""
+          )
+            .trim()
+            .toLocaleLowerCase();
+
+        this.searchQuery =
+          normalized;
+
+        const cards =
+          this.cards
+            .filter(
+              (card) =>
+                card.element &&
+                card.element
+                  .isConnected
+            );
+
+        let matches =
+          0;
+
+        for (
+          const card
+          of cards
+        ) {
+          const content =
+            [
+              card.copyCommand ||
+                "",
+              card.copyOutput ||
+                "",
+            ]
+              .join(
+                "\n"
+              )
+              .toLocaleLowerCase();
+
+          const match =
+            !normalized ||
+            content.includes(
+              normalized
+            );
+
+          card.searchMatch =
+            match;
+
+          if (
+            normalized &&
+            match
+          ) {
+            matches += 1;
+          }
+
+          const dimmed =
+            normalized &&
+            !match;
+
+          if (
+            !card.searchShade
+          ) {
+            const shade =
+              document
+                .createElement(
+                  "div"
+                );
+
+            Object.assign(
+              shade.style,
+              {
+                position:
+                  "absolute",
+
+                inset:
+                  "0",
+
+                display:
+                  "none",
+
+                background:
+                  "rgba(33, 33, 33, 0.38)",
+
+                borderRadius:
+                  `${BORDER_RADIUS}px`,
+
+                pointerEvents:
+                  "none",
+
+                zIndex:
+                  "20",
+              }
+            );
+
+            card.element
+              .appendChild(
+                shade
+              );
+
+            card.searchShade =
+              shade;
+          }
+
+          card.element
+            .style
+            .opacity =
+              "1";
+
+          card.element
+            .style
+            .filter =
+              dimmed
+                ? "none"
+                : "none";
+
+          card.searchShade
+            .style
+            .display =
+              dimmed
+                ? "block"
+                : "none";
+
+          card.element
+            .style
+            .outline =
+              normalized &&
+              match
+                ? "2px solid rgba(149, 184, 174, 0.78)"
+                : "none";
+
+          card.element
+            .style
+            .outlineOffset =
+              "-2px";
+
+          card.element
+            .style
+            .boxShadow =
+              normalized &&
+              match
+                ? "0 0 0 1px rgba(149, 184, 174, 0.16)"
+                : "";
+
+          if (
+            card.controls
+          ) {
+            card.controls
+              .style
+              .opacity =
+                dimmed
+                  ? "0.38"
+                  : "1";
+          }
+        }
+
+        for (
+          const group
+          of this.commandGroups
+            .values()
+        ) {
+          const groupMatches =
+            !normalized ||
+            group.cards.some(
+              (card) =>
+                card.searchMatch
+            );
+
+          const opacity =
+            normalized &&
+            !groupMatches
+              ? "0.38"
+              : "1";
+
+          if (
+            group.header
+          ) {
+            group.header
+              .style
+              .opacity =
+                opacity;
+          }
+
+          if (
+            group.rail
+          ) {
+            group.rail
+              .style
+              .opacity =
+                opacity;
+          }
+        }
+
+        this
+          .updateSearchPromptShade(
+            Boolean(
+              normalized
+            )
+          );
+
+        if (
+          this.searchCount
+        ) {
+          if (!normalized) {
+            this.searchCount
+              .textContent =
+                `${cards.length} ${
+                  cards.length === 1
+                    ? "card"
+                    : "cards"
+                }`;
+          } else {
+            this.searchCount
+              .textContent =
+                `${matches} ${
+                  matches === 1
+                    ? "match"
+                    : "matches"
+                }`;
+          }
+        }
       }
 
       getSelectedCards() {
@@ -4261,6 +5108,11 @@ exports.decorateTerm =
 
       resetCardsAfterClear() {
         this
+          .closeCardSearch(
+            false
+          );
+
+        this
           .clearCardSelection();
 
         this.pendingGroup =
@@ -5360,6 +6212,21 @@ exports.decorateTerm =
         this.cards.push(
           card
         );
+
+        if (
+          this.searchBar &&
+          this.searchBar.style
+            .display !==
+            "none"
+        ) {
+          this
+            .updateCardSearch(
+              this.searchInput
+                ? this.searchInput
+                    .value
+                : this.searchQuery
+            );
+        }
 
         this
           .registerCommandGroup(
