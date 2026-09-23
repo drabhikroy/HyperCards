@@ -2719,6 +2719,13 @@ exports.decorateTerm =
           this
             .closeCardsMenu();
         }
+
+        requestAnimationFrame(
+          () => {
+            this
+              .updateStickyCopyControl();
+          }
+        );
       }
 
       setAllCardsCollapsed(
@@ -7593,7 +7600,21 @@ exports.decorateTerm =
                 "absolute",
 
               right:
-                `${CARD_SIDE_GAP + 10}px`,
+                `${
+                  CARD_SIDE_GAP +
+                  10 +
+                  (
+                    this.cardsMenuRoot &&
+                    this.cardsMenuRoot
+                      .style
+                      .display !==
+                      "none"
+                      ? this.cardsMenuRoot
+                          .offsetWidth +
+                        10
+                      : 0
+                  )
+                }px`,
 
               transform:
                 "none",
