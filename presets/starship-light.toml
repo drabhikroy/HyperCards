@@ -2,56 +2,56 @@ command_timeout = 2000
 add_newline = false
 
 format = """
-[╭─](#56616F)\
-[  ](#A5B8D0)\
+[╭─](#5B6470)\
+[  ](#4B6278)\
 $directory\
-([  ](#56616F)$git_branch$git_status)\
-([  ](#56616F)$nodejs$rust$golang$php)\
-[  ](#56616F)\
+([  ](#5B6470)$git_branch$git_status)\
+([  ](#5B6470)$nodejs$rust$golang$php)\
+[  ](#5B6470)\
 $time\
-\n[╰─](#56616F)$character"""
+\n[╰─](#5B6470)$character"""
 
 [directory]
-style = "fg:#E6E8EA"
+style = "fg:#374151"
 format = "[ $path ]($style)"
 truncation_length = 0
 truncate_to_repo = false
 
 [git_branch]
 symbol = ""
-style = "fg:#AFC4D8"
+style = "fg:#4B6278"
 format = "[ $symbol $branch ]($style)"
 
 [git_status]
-style = "fg:#AFC4D8"
+style = "fg:#4B6278"
 format = "[($all_status$ahead_behind )]($style)"
 
 [nodejs]
 symbol = ""
-style = "fg:#95B8AE"
+style = "fg:#3F6B62"
 format = "[ $symbol $version ]($style)"
 
 [rust]
 symbol = ""
-style = "fg:#C9A17A"
+style = "fg:#7A5A36"
 format = "[ $symbol $version ]($style)"
 
 [golang]
 symbol = ""
-style = "fg:#83BFC7"
+style = "fg:#3F6F78"
 format = "[ $symbol $version ]($style)"
 
 [php]
 symbol = ""
-style = "fg:#B6A6CF"
+style = "fg:#65547A"
 format = "[ $symbol $version ]($style)"
 
 [time]
 disabled = false
 time_format = "%R"
-style = "fg:#AAB2BA"
+style = "fg:#5B6470"
 format = "[  $time ]($style)"
 
 [character]
-success_symbol = "[❯](#8FBF88)"
-error_symbol = "[❯](#E07878)"
+success_symbol = "[❯](#3E7A50)"
+error_symbol = "[❯](#A23E48)"

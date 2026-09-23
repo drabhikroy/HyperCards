@@ -12,7 +12,7 @@ const SCROLLBAR_BOTTOM_GAP = 7;
 const SCROLLBAR_THUMB_HEIGHT = 36;
 const SCROLLBAR_NATIVE_GUTTER = 12;
 const SCROLLBAR_TRACK_COLOR = "transparent";
-const SCROLLBAR_THUMB_COLOR = "rgba(170, 178, 186, 0.34)";
+const SCROLLBAR_THUMB_COLOR = "var(--hcc-scrollbar-thumb, rgba(170, 178, 186, 0.34))";
 
 const OUTPUT_INDENT_COLUMNS = 2;
 const OUTPUT_INDENT = `\x1b[${OUTPUT_INDENT_COLUMNS}C`;
@@ -687,6 +687,416 @@ async function writeClipboard(
   return false;
 }
 
+
+function hccParseColor(
+  value,
+  fallback
+) {
+  const parse =
+    (input) => {
+      const text =
+        String(
+          input || ""
+        ).trim();
+
+      const hex =
+        text.match(
+          /^#([0-9a-f]{6})$/i
+        );
+
+      if (hex) {
+        return [
+          Number.parseInt(
+            hex[1].slice(0, 2),
+            16
+          ),
+          Number.parseInt(
+            hex[1].slice(2, 4),
+            16
+          ),
+          Number.parseInt(
+            hex[1].slice(4, 6),
+            16
+          ),
+        ];
+      }
+
+      const shortHex =
+        text.match(
+          /^#([0-9a-f]{3})$/i
+        );
+
+      if (shortHex) {
+        return shortHex[1]
+          .split("")
+          .map(
+            (part) =>
+              Number.parseInt(
+                part + part,
+                16
+              )
+          );
+      }
+
+      const rgb =
+        text.match(
+          /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i
+        );
+
+      if (rgb) {
+        return [
+          Number(rgb[1]),
+          Number(rgb[2]),
+          Number(rgb[3]),
+        ];
+      }
+
+      return null;
+    };
+
+  return (
+    parse(value) ||
+    parse(fallback) ||
+    [33, 33, 33]
+  );
+}
+
+function hccMixColor(
+  first,
+  second,
+  amount
+) {
+  const ratio =
+    Math.max(
+      0,
+      Math.min(
+        1,
+        amount
+      )
+    );
+
+  return first.map(
+    (value, index) =>
+      Math.round(
+        value +
+        (
+          second[index] -
+          value
+        ) *
+        ratio
+      )
+  );
+}
+
+function hccRgb(
+  color
+) {
+  return `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
+}
+
+function hccRgba(
+  color,
+  alpha
+) {
+  return `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${alpha})`;
+}
+
+function hccLuminance(
+  color
+) {
+  const channels =
+    color.map(
+      (value) => {
+        const normalized =
+          value / 255;
+
+        return normalized <=
+          0.03928
+          ? normalized /
+            12.92
+          : Math.pow(
+              (
+                normalized +
+                0.055
+              ) /
+                1.055,
+              2.4
+            );
+      }
+    );
+
+  return (
+    channels[0] *
+      0.2126 +
+    channels[1] *
+      0.7152 +
+    channels[2] *
+      0.0722
+  );
+}
+
+function applyThemeVariables(
+  root,
+  xterm
+) {
+  if (
+    !root ||
+    !xterm
+  ) {
+    return;
+  }
+
+  const theme =
+    (
+      xterm.options &&
+      xterm.options.theme
+    ) ||
+    {};
+
+  const background =
+    hccParseColor(
+      theme.background,
+      "#212121"
+    );
+
+  const foreground =
+    hccParseColor(
+      theme.foreground,
+      "#E6E8EA"
+    );
+
+  const accent =
+    hccParseColor(
+      theme.cyan ||
+      theme.green ||
+      theme.blue,
+      "#95B8AE"
+    );
+
+  const successBase =
+    hccParseColor(
+      theme.green,
+      "#8FBF88"
+    );
+
+  const failureBase =
+    hccParseColor(
+      theme.red,
+      "#E07878"
+    );
+
+  const light =
+    hccLuminance(
+      background
+    ) >
+    0.45;
+
+  const border =
+    hccMixColor(
+      background,
+      foreground,
+      light
+        ? 0.22
+        : 0.16
+    );
+
+  const muted =
+    hccMixColor(
+      foreground,
+      background,
+      light
+        ? 0.38
+        : 0.34
+    );
+
+  const menuSurface =
+    hccMixColor(
+      background,
+      foreground,
+      light
+        ? 0.055
+        : 0.075
+    );
+
+  const accentText =
+    hccMixColor(
+      accent,
+      foreground,
+      light
+        ? 0.48
+        : 0.58
+    );
+
+  const success =
+    hccMixColor(
+      successBase,
+      foreground,
+      light
+        ? 0.18
+        : 0.22
+    );
+
+  const failure =
+    hccMixColor(
+      failureBase,
+      foreground,
+      light
+        ? 0.12
+        : 0.18
+    );
+
+  const hoverBase =
+    light
+      ? [0, 0, 0]
+      : [255, 255, 255];
+
+  const properties = {
+    "--hcc-background":
+      hccRgb(
+        background
+      ),
+
+    "--hcc-text":
+      hccRgb(
+        foreground
+      ),
+
+    "--hcc-muted":
+      hccRgb(
+        muted
+      ),
+
+    "--hcc-border":
+      hccRgb(
+        border
+      ),
+
+    "--hcc-accent":
+      hccRgb(
+        accent
+      ),
+
+    "--hcc-accent-text":
+      hccRgb(
+        accentText
+      ),
+
+    "--hcc-accent-soft":
+      hccRgba(
+        accent,
+        light
+          ? 0.10
+          : 0.14
+      ),
+
+    "--hcc-accent-border":
+      hccRgba(
+        accent,
+        0.72
+      ),
+
+    "--hcc-accent-border-strong":
+      hccRgba(
+        accent,
+        0.80
+      ),
+
+    "--hcc-accent-border-soft":
+      hccRgba(
+        accent,
+        0.58
+      ),
+
+    "--hcc-accent-glow":
+      hccRgba(
+        accent,
+        light
+          ? 0.12
+          : 0.16
+      ),
+
+    "--hcc-success":
+      hccRgb(
+        success
+      ),
+
+    "--hcc-failure":
+      hccRgb(
+        failure
+      ),
+
+    "--hcc-control-surface":
+      hccRgba(
+        background,
+        light
+          ? 0.91
+          : 0.88
+      ),
+
+    "--hcc-panel-surface":
+      hccRgba(
+        background,
+        0.97
+      ),
+
+    "--hcc-menu-surface":
+      hccRgb(
+        menuSurface
+      ),
+
+    "--hcc-card-surface":
+      hccRgba(
+        foreground,
+        light
+          ? 0.020
+          : 0.012
+      ),
+
+    "--hcc-hover":
+      hccRgba(
+        hoverBase,
+        0.055
+      ),
+
+    "--hcc-search-shade":
+      hccRgba(
+        background,
+        light
+          ? 0.44
+          : 0.38
+      ),
+
+    "--hcc-scrollbar-thumb":
+      hccRgba(
+        muted,
+        light
+          ? 0.42
+          : 0.34
+      ),
+  };
+
+  for (
+    const [
+      name,
+      value,
+    ]
+    of Object.entries(
+      properties
+    )
+  ) {
+    root.style
+      .setProperty(
+        name,
+        value
+      );
+  }
+
+  root.dataset.hccTheme =
+    light
+      ? "light"
+      : "dark";
+}
+
 function applyButtonBase(
   button
 ) {
@@ -709,7 +1119,7 @@ function applyButtonBase(
         "transparent",
 
       color:
-        "#AAB2BA",
+        "var(--hcc-muted, #AAB2BA)",
 
       fontFamily:
         "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif",
@@ -736,11 +1146,11 @@ function applyButtonBase(
           !button.disabled
         ) {
           button.style.color =
-            "#E6E8EA";
+            "var(--hcc-text, #E6E8EA)";
 
           button.style
             .background =
-              "rgba(255, 255, 255, 0.055)";
+              "var(--hcc-hover, rgba(255, 255, 255, 0.055))";
         }
       }
     );
@@ -753,7 +1163,7 @@ function applyButtonBase(
           !button.disabled
         ) {
           button.style.color =
-            "#AAB2BA";
+            "var(--hcc-muted, #AAB2BA)";
 
           button.style
             .background =
@@ -768,7 +1178,7 @@ function applyButtonBase(
       () => {
         button.style
           .boxShadow =
-            "inset 0 0 0 1px #95B8AE";
+            "inset 0 0 0 1px var(--hcc-accent, #95B8AE)";
       }
     );
 
@@ -814,10 +1224,10 @@ function createCopyControl(
         "auto",
 
       background:
-        "rgba(33, 33, 33, 0.88)",
+        "var(--hcc-control-surface, rgba(33, 33, 33, 0.88))",
 
       border:
-        "1px solid #3D4850",
+        "1px solid var(--hcc-border, #3D4850)",
 
       borderRadius:
         "8px",
@@ -933,7 +1343,7 @@ function createCopyControl(
         "1",
 
       borderLeft:
-        "1px solid #3D4850",
+        "1px solid var(--hcc-border, #3D4850)",
 
       borderRadius:
         "0 7px 7px 0",
@@ -984,10 +1394,10 @@ function createCopyControl(
         "4px",
 
       background:
-        "#252A30",
+        "var(--hcc-menu-surface, #252A30)",
 
       border:
-        "1px solid #3D4850",
+        "1px solid var(--hcc-border, #3D4850)",
 
       borderRadius:
         "9px",
@@ -1090,7 +1500,7 @@ function createCopyControl(
         "Copied";
 
       button.style.color =
-        "#8FBF88";
+        "var(--hcc-success, #8FBF88)";
 
       if (
         button
@@ -1110,7 +1520,7 @@ function createCopyControl(
                 original;
 
               button.style.color =
-                "#AAB2BA";
+                "var(--hcc-muted, #AAB2BA)";
             },
             1100
           );
@@ -1581,10 +1991,10 @@ function createCollapseControl(
         "auto",
 
       background:
-        "rgba(33, 33, 33, 0.88)",
+        "var(--hcc-control-surface, rgba(33, 33, 33, 0.88))",
 
       border:
-        "1px solid #3D4850",
+        "1px solid var(--hcc-border, #3D4850)",
 
       borderRadius:
         "8px",
@@ -2028,6 +2438,18 @@ exports.decorateTerm =
             .bind(this);
       }
 
+      componentDidUpdate() {
+        if (
+          this.wrapper &&
+          this.xterm
+        ) {
+          applyThemeVariables(
+            this.wrapper,
+            this.xterm
+          );
+        }
+      }
+
       componentWillUnmount() {
         if (this.wrapper) {
           this.wrapper.removeEventListener(
@@ -2440,7 +2862,7 @@ exports.decorateTerm =
               "8px",
 
             background:
-              "rgba(33, 33, 33, 0.96)",
+              "var(--hcc-panel-surface, rgba(33, 33, 33, 0.96))",
           }
         );
 
@@ -2488,10 +2910,10 @@ exports.decorateTerm =
               "5px",
 
             background:
-              "rgba(33, 33, 33, 0.98)",
+              "var(--hcc-panel-surface, rgba(33, 33, 33, 0.98))",
 
             border:
-              "1px solid #3D4850",
+              "1px solid var(--hcc-border, #3D4850)",
 
             borderRadius:
               "9px",
@@ -2837,7 +3259,7 @@ exports.decorateTerm =
               "none",
 
             background:
-              "rgba(33, 33, 33, 0.38)",
+              "var(--hcc-search-shade, rgba(33, 33, 33, 0.38))",
 
             pointerEvents:
               "none",
@@ -2990,10 +3412,10 @@ exports.decorateTerm =
               "5px 6px 5px 9px",
 
             background:
-              "rgba(33, 33, 33, 0.97)",
+              "var(--hcc-panel-surface, rgba(33, 33, 33, 0.97))",
 
             border:
-              "1px solid #3D4850",
+              "1px solid var(--hcc-border, #3D4850)",
 
             borderRadius:
               "10px",
@@ -3077,7 +3499,7 @@ exports.decorateTerm =
               "#191C20",
 
             color:
-              "#E6E8EA",
+              "var(--hcc-text, #E6E8EA)",
 
             fontFamily:
               "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif",
@@ -3111,7 +3533,7 @@ exports.decorateTerm =
               "62px",
 
             color:
-              "#AAB2BA",
+              "var(--hcc-muted, #AAB2BA)",
 
             fontFamily:
               "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif",
@@ -3177,7 +3599,7 @@ exports.decorateTerm =
           () => {
             input.style
               .borderColor =
-                "#95B8AE";
+                "var(--hcc-accent, #95B8AE)";
           }
         );
 
@@ -3474,7 +3896,7 @@ exports.decorateTerm =
                   "none",
 
                 background:
-                  "rgba(33, 33, 33, 0.38)",
+                  "var(--hcc-search-shade, rgba(33, 33, 33, 0.38))",
 
                 borderRadius:
                   `${BORDER_RADIUS}px`,
@@ -3520,7 +3942,7 @@ exports.decorateTerm =
             .outline =
               normalized &&
               match
-                ? "2px solid rgba(149, 184, 174, 0.78)"
+                ? "2px solid var(--hcc-accent-border-strong, rgba(149, 184, 174, 0.78))"
                 : "none";
 
           card.element
@@ -3533,7 +3955,7 @@ exports.decorateTerm =
             .boxShadow =
               normalized &&
               match
-                ? "0 0 0 1px rgba(149, 184, 174, 0.16)"
+                ? "0 0 0 1px var(--hcc-accent-glow, rgba(149, 184, 174, 0.16))"
                 : "";
 
           if (
@@ -3795,10 +4217,10 @@ exports.decorateTerm =
               "4px 5px 4px 9px",
 
             background:
-              "rgba(33, 33, 33, 0.96)",
+              "var(--hcc-panel-surface, rgba(33, 33, 33, 0.96))",
 
             border:
-              "1px solid #3D4850",
+              "1px solid var(--hcc-border, #3D4850)",
 
             borderRadius:
               "9px",
@@ -3824,7 +4246,7 @@ exports.decorateTerm =
           count.style,
           {
             color:
-              "#AAB2BA",
+              "var(--hcc-muted, #AAB2BA)",
 
             fontFamily:
               "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif",
@@ -3859,7 +4281,7 @@ exports.decorateTerm =
               "stretch",
 
             border:
-              "1px solid #3D4850",
+              "1px solid var(--hcc-border, #3D4850)",
 
             borderRadius:
               "8px",
@@ -3955,7 +4377,7 @@ exports.decorateTerm =
               "7px",
 
             borderLeft:
-              "1px solid #3D4850",
+              "1px solid var(--hcc-border, #3D4850)",
 
             borderRadius:
               "0 7px 7px 0",
@@ -4000,10 +4422,10 @@ exports.decorateTerm =
               "4px",
 
             background:
-              "#252A30",
+              "var(--hcc-menu-surface, #252A30)",
 
             border:
-              "1px solid #3D4850",
+              "1px solid var(--hcc-border, #3D4850)",
 
             borderRadius:
               "9px",
@@ -4313,8 +4735,8 @@ exports.decorateTerm =
               .style
               .color =
                 selected
-                  ? "#DCEBE6"
-                  : "#AAB2BA";
+                  ? "var(--hcc-accent-text, #DCEBE6)"
+                  : "var(--hcc-muted, #AAB2BA)";
 
             const hovered =
               card.controls &&
@@ -4336,8 +4758,8 @@ exports.decorateTerm =
               .style
               .borderColor =
                 selected
-                  ? "#95B8AE"
-                  : "#3D4850";
+                  ? "var(--hcc-accent, #95B8AE)"
+                  : "var(--hcc-border, #3D4850)";
           }
         }
 
@@ -4530,6 +4952,11 @@ exports.decorateTerm =
 
         this.xterm =
           xterm;
+
+        applyThemeVariables(
+          this.wrapper,
+          this.xterm
+        );
 
         try {
           this.xterm.options.customGlyphs =
@@ -4891,13 +5318,13 @@ exports.decorateTerm =
               "2px 4px",
 
             background:
-              "rgba(149, 184, 174, 0.14)",
+              "var(--hcc-accent-soft, rgba(149, 184, 174, 0.14))",
 
             border:
-              "1px solid rgba(149, 184, 174, 0.72)",
+              "1px solid var(--hcc-accent-border, rgba(149, 184, 174, 0.72))",
 
             borderLeft:
-              "3px solid #95B8AE",
+              "3px solid var(--hcc-accent, #95B8AE)",
 
             borderRadius:
               "5px",
@@ -4923,7 +5350,7 @@ exports.decorateTerm =
           label.style,
           {
             color:
-              "#D6E6E1",
+              "var(--hcc-accent-text, #D6E6E1)",
 
             fontWeight:
               "600",
@@ -6094,10 +6521,10 @@ exports.decorateTerm =
               "none",
 
             background:
-              "rgba(255, 255, 255, 0.012)",
+              "var(--hcc-card-surface, rgba(255, 255, 255, 0.012))",
 
             border:
-              "1px solid #3D4850",
+              "1px solid var(--hcc-border, #3D4850)",
 
             borderRadius:
               `${BORDER_RADIUS}px`,
@@ -6191,7 +6618,7 @@ exports.decorateTerm =
               "none",
 
             background:
-              "#212121",
+              "var(--hcc-background, #212121)",
 
             pointerEvents:
               "none",
@@ -6226,10 +6653,10 @@ exports.decorateTerm =
               "none",
 
             background:
-              "rgba(255, 255, 255, 0.012)",
+              "var(--hcc-card-surface, rgba(255, 255, 255, 0.012))",
 
             border:
-              "1px solid #3D4850",
+              "1px solid var(--hcc-border, #3D4850)",
 
             borderRadius:
               `${BORDER_RADIUS}px`,
@@ -6411,10 +6838,10 @@ exports.decorateTerm =
               hasExitCode
                 ? (
                     success
-                      ? "#A9C9A3"
-                      : "#D8A2A2"
+                      ? "var(--hcc-success, #A9C9A3)"
+                      : "var(--hcc-failure, #D8A2A2)"
                   )
-                : "#AAB2BA",
+                : "var(--hcc-muted, #AAB2BA)",
 
             fontFamily:
               "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif",
@@ -6508,10 +6935,10 @@ exports.decorateTerm =
               "1px 0",
 
             background:
-              "rgba(33, 33, 33, 0.88)",
+              "var(--hcc-control-surface, rgba(33, 33, 33, 0.88))",
 
             border:
-              "1px solid #3D4850",
+              "1px solid var(--hcc-border, #3D4850)",
 
             borderRadius:
               "8px",
@@ -7865,7 +8292,7 @@ exports.decorateTerm =
               background:
                 card.collapsed
                   ? "transparent"
-                  : "rgba(255, 255, 255, 0.012)",
+                  : "var(--hcc-card-surface, rgba(255, 255, 255, 0.012))",
 
               border:
                 card.collapsed
@@ -7873,8 +8300,8 @@ exports.decorateTerm =
                   : (
                       this.selectedCards
                         .has(card)
-                        ? "1px solid #95B8AE"
-                        : "1px solid #3D4850"
+                        ? "1px solid var(--hcc-accent, #95B8AE)"
+                        : "1px solid var(--hcc-border, #3D4850)"
                     ),
 
               boxShadow:
