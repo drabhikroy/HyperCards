@@ -4,7 +4,7 @@ const OSC_ID = 777;
 const CARD_SIDE_GAP = 8;
 const VERTICAL_INSET = 4;
 
-// Keep xterm's scrollbar gutter but use a fixed-size visual thumb.
+// Preserve xterm's scrollbar gutter while drawing a fixed-size thumb.
 const SCROLLBAR_RIGHT = 0;
 const SCROLLBAR_WIDTH = 4;
 const SCROLLBAR_TOP_GAP = 7;
@@ -4672,13 +4672,6 @@ exports.decorateTerm =
             .opacity =
               "1";
 
-          card.element
-            .style
-            .filter =
-              dimmed
-                ? "none"
-                : "none";
-
           card.searchShade
             .style
             .display =
@@ -7912,20 +7905,20 @@ exports.decorateTerm =
               "span"
             );
 
-          statusLabel.className =
-            "hcc-card-status";
+        statusLabel.className =
+          "hcc-card-status";
 
-          statusLabel
-            .setAttribute(
-              "aria-live",
-              "polite"
-            );
+        statusLabel
+          .setAttribute(
+            "aria-live",
+            "polite"
+          );
 
-          statusLabel
-            .setAttribute(
-              "aria-atomic",
-              "true"
-            );
+        statusLabel
+          .setAttribute(
+            "aria-atomic",
+            "true"
+          );
 
         const hasExitCode =
           Number.isInteger(
@@ -8404,8 +8397,8 @@ exports.decorateTerm =
           .scheduleGeometryUpdate();
       }
 
-      // True collapse changes xterm's scrollback, so it needs direct
-      // access to the internal line buffer. Return null if that API changes.
+      // True collapse edits xterm's internal buffer. If that API is
+      // unavailable, return null instead of changing the scrollback.
       getMutableBuffer() {
         try {
           const core =

@@ -676,12 +676,6 @@ Remove the local plugin:
 rm -rf "$HOME/.hyper_plugins/local/hyper-command-cards"
 ```
 
-Remove the shell module:
-
-```sh
-rm -rf "$HOME/.config/hyper-command-cards"
-```
-
 Remove:
 
 ```js
@@ -693,7 +687,7 @@ from the `localPlugins` array in `~/.hyper.js`.
 Remove this line from `~/.zshrc`:
 
 ```sh
-source "$HOME/.config/hyper-command-cards/hyper-command-cards.zsh"
+source "$HOME/.hyper_plugins/local/hyper-command-cards/shell/hyper-command-cards.zsh"
 ```
 
 Remove any custom Hyper Cards entry from the `keymaps` section of `~/.hyper.js`.

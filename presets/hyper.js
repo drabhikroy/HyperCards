@@ -58,8 +58,7 @@ module.exports = {
     webGLRenderer: false,
   },
 
-  plugins: [
-  ],
+  plugins: [],
 
   localPlugins: [
     "hyper-command-cards",

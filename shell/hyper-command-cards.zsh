@@ -160,7 +160,7 @@ bindkey '^J' _hcc_accept_line
 
 add-zle-hook-widget line-init _hcc_line_init
 
-# Use fzf's zsh history widget while keeping the HCC visual style.
+# Use fzf's zsh history widget with the Hyper Cards picker options.
 _hcc_setup_history_picker() {
   emulate -L zsh
 
@@ -182,7 +182,7 @@ _hcc_setup_history_picker() {
     --no-multi
     --cycle
     --info=inline-right
-    --bind='ctrl-]:abort,esc:abort'
+    --bind='esc:abort'
     --color='fg:#E6E8EA,bg:#212121,hl:#AFC4D8,fg+:#F2F3F4,bg+:#252A30,hl+:#AFC4D8,prompt:#A5B8D0,pointer:#95B8AE,marker:#8FBF88,border:#56616F,info:#AAB2BA'
   "
 
@@ -198,15 +198,10 @@ _hcc_setup_history_picker() {
 
   eval "$integration"
 
-  # Private bridge for the Mac-native Command-R history shortcut.
+  # Hyper sends Ctrl-G to open the history picker.
   bindkey -M emacs '^G' fzf-history-widget
   bindkey -M viins '^G' fzf-history-widget
   bindkey -M vicmd '^G' fzf-history-widget
-
-  # Private transport used by the Hyper ⌘R history shortcut.
-  bindkey -M emacs '^]' fzf-history-widget
-  bindkey -M viins '^]' fzf-history-widget
-  bindkey -M vicmd '^]' fzf-history-widget
 }
 
 _hcc_setup_history_picker
