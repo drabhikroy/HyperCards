@@ -250,12 +250,56 @@ If fzf is not installed, the shell module falls back to the standard zsh reverse
 
 ## Installation
 
-See [INSTALL.md](INSTALL.md) for complete setup instructions.
+Hyper Cards uses two pieces from the same installation folder:
 
-The installation guide includes separate paths for:
+- a local Hyper plugin
+- a zsh module
 
-1. A new Hyper setup
-2. An existing Hyper setup
+For a new installation, create Hyper's local-plugin directory and clone Hyper Cards directly into it:
+
+```sh
+mkdir -p "$HOME/.hyper_plugins/local"
+
+git clone https://github.com/drabhikroy/HyperCards.git \
+  "$HOME/.hyper_plugins/local/hyper-command-cards"
+```
+
+Open `~/.hyper.js` and add Hyper Cards to `localPlugins`:
+
+```js
+localPlugins: [
+  "hyper-command-cards"
+]
+```
+
+Hyper Cards belongs in `localPlugins`, not the normal `plugins` array.
+
+Then add the shell module to `~/.zshrc`:
+
+```sh
+source "$HOME/.hyper_plugins/local/hyper-command-cards/shell/hyper-command-cards.zsh"
+```
+
+Quit Hyper completely with `⌘Q`, then reopen it.
+
+Test the installation with:
+
+```sh
+printf 'Hyper Cards is working\n'
+```
+
+The command and its output should appear together in a card.
+
+To update an existing Git installation:
+
+```sh
+cd "$HOME/.hyper_plugins/local/hyper-command-cards"
+git pull
+```
+
+Restart Hyper after updating.
+
+See [INSTALL.md](INSTALL.md) for the complete setup guide, including existing Hyper configurations, fzf, Starship, the supplied font, appearance settings, verification tests, and troubleshooting.
 
 Back up existing Hyper, zsh, and Starship configuration before making manual changes.
 

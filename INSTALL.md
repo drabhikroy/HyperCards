@@ -74,16 +74,38 @@ Add this line to `~/.zshrc` if it is not already present:
 eval "$(starship init zsh)"
 ```
 
-### 5. Get Hyper Cards
+### 5. Install Hyper Cards
 
-Clone the repository:
+Hyper Cards is loaded by Hyper as a local plugin. Keep the repository itself in Hyper's local-plugin folder so the plugin and shell module come from the same installation.
+
+Create the local-plugin directory:
 
 ```sh
-git clone https://github.com/drabhikroy/HyperCards.git
-cd HyperCards
+mkdir -p "$HOME/.hyper_plugins/local"
 ```
 
-If you downloaded a ZIP instead, open a terminal in the extracted `HyperCards` folder.
+Clone Hyper Cards directly into it:
+
+```sh
+git clone https://github.com/drabhikroy/HyperCards.git \
+  "$HOME/.hyper_plugins/local/hyper-command-cards"
+```
+
+After cloning, the plugin should be available at:
+
+```text
+~/.hyper_plugins/local/hyper-command-cards
+```
+
+If that path already contains an existing Hyper Cards Git installation, do not clone over it. See **Updating Hyper Cards** below.
+
+If you downloaded the repository as a ZIP instead, extract it and place the extracted HyperCards folder at:
+
+```text
+~/.hyper_plugins/local/hyper-command-cards
+```
+
+The final folder must contain `index.js`, `package.json`, `shell/`, `presets/`, and the other repository files directly.
 
 ### 6. Install the modified FiraCode Nerd Font Mono
 
@@ -106,22 +128,7 @@ cp fonts/FiraCodeNerdFontMonoShort76-Regular.ttf \
 
 Restart Hyper if the newly installed font does not appear right away.
 
-### 7. Install the Hyper plugin
-
-Create the local plugin folder:
-
-```sh
-mkdir -p "$HOME/.hyper_plugins/local/hyper-command-cards"
-```
-
-Copy the plugin files:
-
-```sh
-cp index.js package.json \
-  "$HOME/.hyper_plugins/local/hyper-command-cards/"
-```
-
-Next, tell Hyper to load the local plugin.
+### 7. Enable the Hyper plugin
 
 Open:
 
@@ -145,30 +152,21 @@ localPlugins: [
 
 If other local plugins are already listed, keep them and add Hyper Cards as another entry.
 
-### 8. Install the shell module
+Hyper Cards belongs in `localPlugins`, not the normal `plugins` array.
 
-Create the configuration folder:
-
-```sh
-mkdir -p "$HOME/.config/hyper-command-cards"
-```
-
-Copy the module:
-
-```sh
-cp shell/hyper-command-cards.zsh \
-  "$HOME/.config/hyper-command-cards/"
-```
+### 8. Load the shell module
 
 Add this line to `~/.zshrc`:
 
 ```sh
-source "$HOME/.config/hyper-command-cards/hyper-command-cards.zsh"
+source "$HOME/.hyper_plugins/local/hyper-command-cards/shell/hyper-command-cards.zsh"
 ```
 
 Add the line only once.
 
 Place it near the end of `.zshrc`, after any shell setup that should load first.
+
+Using the module directly from the Hyper Cards installation keeps the Hyper plugin and zsh integration on the same version.
 
 ### 9. Install the Starship preset
 
@@ -374,16 +372,22 @@ If the command returns nothing and you want searchable history:
 brew install fzf
 ```
 
-### 3. Install the local Hyper plugin
+### 3. Install Hyper Cards
 
-From the HyperCards repository:
+If Hyper Cards is not already installed, create Hyper's local-plugin directory:
 
 ```sh
-mkdir -p "$HOME/.hyper_plugins/local/hyper-command-cards"
-
-cp index.js package.json \
-  "$HOME/.hyper_plugins/local/hyper-command-cards/"
+mkdir -p "$HOME/.hyper_plugins/local"
 ```
+
+Then clone the repository directly into it:
+
+```sh
+git clone https://github.com/drabhikroy/HyperCards.git \
+  "$HOME/.hyper_plugins/local/hyper-command-cards"
+```
+
+If `~/.hyper_plugins/local/hyper-command-cards` already contains a Hyper Cards Git installation, do not clone it again. See **Updating Hyper Cards** below.
 
 ### 4. Add the plugin to Hyper
 
@@ -412,22 +416,17 @@ localPlugins: [
 ]
 ```
 
-### 5. Install the shell module
-
-Run:
-
-```sh
-mkdir -p "$HOME/.config/hyper-command-cards"
-
-cp shell/hyper-command-cards.zsh \
-  "$HOME/.config/hyper-command-cards/"
-```
+### 5. Load the shell module
 
 Add this line to `~/.zshrc` if it is not already present:
 
 ```sh
-source "$HOME/.config/hyper-command-cards/hyper-command-cards.zsh"
+source "$HOME/.hyper_plugins/local/hyper-command-cards/shell/hyper-command-cards.zsh"
 ```
+
+The shell module is loaded directly from the same installation Hyper uses for the local plugin.
+
+Place the line near the end of `.zshrc`, after any shell setup that should load first.
 
 ### 6. Compare the Hyper preset
 
@@ -503,6 +502,29 @@ Restart Hyper after changing the binding.
 The custom key takes precedence over the default.
 
 `Ctrl+R` remains available separately as the standard zsh/fzf history shortcut.
+
+## Updating Hyper Cards
+
+If Hyper Cards was installed with Git, update the existing installation rather than cloning it again:
+
+```sh
+cd "$HOME/.hyper_plugins/local/hyper-command-cards"
+git pull
+```
+
+The Hyper plugin and shell module update together because both are loaded from this directory.
+
+After updating, quit Hyper completely with `⌘Q` and reopen it.
+
+You can confirm the installed version with:
+
+```sh
+grep '"version"' \
+  "$HOME/.hyper_plugins/local/hyper-command-cards/package.json" \
+  | head -1
+```
+
+If Hyper Cards was installed from a ZIP rather than Git, replace the existing installation folder with the contents of the newer ZIP, then restart Hyper.
 
 ## Troubleshooting
 
