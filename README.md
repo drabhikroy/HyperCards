@@ -19,54 +19,79 @@ Each command stays connected to its output, making long terminal sessions easier
 ## Features
 
 - Places each completed command and its output in a separate card
-- Keeps card controls visible while long output scrolls
-- Copies output, the command, or both together
+- Shows a compact command result and elapsed time when available
+- Keeps regular card actions in one **Actions** menu
+- Searches commands and output from the current terminal session
 - Selects multiple cards and copies their output, commands, or both in terminal order
-- Groups commands from the same multiline paste into a numbered batch with shared copy controls
+- Groups commands from the same multiline paste into a numbered batch with shared controls
+- Marks completed batches with success or failure symbols
+- Makes a batch easier to identify when its tab is hovered or focused
+- Starts output beneath the command text rather than beneath the prompt
 - Collapses output and reclaims the terminal rows it occupied
 - Restores collapsed output when needed
 - Removes cards when the terminal is cleared
 - Handles pasted groups of independent commands one at a time
 - Adds searchable command history through fzf
 - Keeps standard `Ctrl+R` history access available
-- Adds a configurable Mac history shortcut
+- Adds configurable Mac shortcuts for history and card search
 - Includes matching Hyper and Starship presets
-- Supports keyboard navigation within card controls
+- Supports keyboard navigation within menus and card controls
 - Uses text and symbols rather than color alone to communicate controls and state
 
 ## Card controls
 
-Each completed card includes controls in its upper-right corner.
+Each completed card shows its result and an **Actions ▾** control in the upper-right corner.
 
-The `○` control selects a card for multi-card copying. It changes to `✓` when the card is selected.
-
-**Copy** copies the card output.
-
-The menu beside Copy includes:
+The Actions menu includes:
 
 - Copy output
 - Copy command
 - Copy command + output
+- Collapse card or Expand card
 
-![Copy menu](assets/screenshots/copy-menu.png)
-
-The `−` control collapses a card.
-
-The `+` control restores it.
+![Card Actions menu](assets/screenshots/actions-menu.png)
 
 Collapsed cards remove their output rows from the visible terminal rather than simply hiding them.
 
 ![Collapsed card](assets/screenshots/collapsed-card.png)
 
+The Hyper Cards button near the top of the terminal opens session-wide controls:
+
+- Search cards
+- Select cards or Stop selecting
+- Collapse all or Expand all
+
+The wording changes when the current state changes. For example, **Collapse all** becomes **Expand all** when every visible card is collapsed.
+
+## Command results
+
+Completed cards show a compact result beside the Actions control. Longer-running commands also show elapsed time.
+
+Examples include:
+
+```text
+✓
+✓ 2.0s
+! Code 1: Command reported an error
+! Code 127: Command not found
+! Code 130: Interrupted with Ctrl+C
+```
+
+Common nonzero exit codes receive short descriptions. Other nonzero codes still show the code and a general failure description.
+
+![Command results](assets/screenshots/command-status.png)
+
 ## Multi-card copy
 
 Multiple cards can be selected and copied together without combining them manually.
 
-Select the `○` control on each card you want to include. Selected cards are marked with `✓` and a compact control bar appears with the number of selected cards.
+Open the Hyper Cards menu and choose **Select cards**. Selection controls then appear on the cards in the current session.
+
+Choose the `○` control on each card you want to include. Selected cards are marked with `✓`, and a compact control bar shows the number of selected cards.
 
 ![Multi-card selection](assets/screenshots/multi-select.png)
 
-The bulk Copy menu provides the same three choices as an individual card:
+The bulk Copy menu provides the same three copy choices as an individual card:
 
 - Copy output
 - Copy command
@@ -74,42 +99,52 @@ The bulk Copy menu provides the same three choices as an individual card:
 
 Selected cards are copied in their original terminal order, regardless of the order in which they were selected.
 
-A successful bulk copy clears the selection. **Cancel** or `Esc` clears the selection without copying.
+A successful bulk copy clears the selection. **Cancel**, **Stop selecting**, or `Esc` exits selection mode without copying.
 
 ## Command batches
 
 When several independent commands are pasted together, Hyper Cards keeps each command in its own card and marks the related cards as one batch.
 
-A compact numbered badge sits beside the batch rail. The badge remains associated with the batch as its cards move through the terminal.
+A compact batch tab sits beside the first card in the batch. It begins with the number of commands in the batch.
 
-![Command batch count](assets/screenshots/batch-count.png)
+- `! N` appears as soon as any command in the batch returns a nonzero exit code
+- `✓ N` appears after every command in the batch completes successfully
 
-Hover over or move keyboard focus to the batch badge to reveal its **Copy** control. The batch menu provides the same three choices as an individual card:
+![Command batch](assets/screenshots/batch-grouping.png)
 
-- Copy output
-- Copy command
-- Copy command + output
+Hover over or move keyboard focus to the batch tab to reveal its batch controls and make the related batch easier to identify.
 
-Each command remains a normal Hyper Card with its own selection, Copy, and collapse controls. Batch copying simply provides a second way to work with commands that arrived together.
+![Batch spotlight](assets/screenshots/batch-spotlight.png)
 
-When more than one batch is present, each count remains tied to its own group as terminal content moves.
-
-| Batch Copy menu | Multiple batch counts |
-| --- | --- |
-| <img src="assets/screenshots/batch-copy-menu.png" alt="Hyper Cards batch Copy menu with output, command, and command plus output options"> | <img src="assets/screenshots/batch-count-stack.png" alt="Hyper Cards showing separate numbered command batches while terminal content moves"> |
+Batch copying can copy output, commands, or commands with output. Each command still remains a normal Hyper Card with its own Actions menu.
 
 ## Keyboard access
 
-Card controls can be used from the keyboard once focus moves into them.
+Hyper Cards controls can be used from the keyboard once focus moves into them.
 
-- `Tab` moves forward through the controls
+- `Tab` moves forward through controls
 - `Shift+Tab` moves backward
 - `Enter` or `Space` activates the selected control
-- Arrow keys move through the Copy menu
-- `Home` and `End` jump within the Copy menu
-- `Esc` clears an active multi-card selection or returns focus to the terminal
+- Arrow keys move through menus
+- `Home` and `End` jump within a menu
+- `⌘⇧F` opens current-session card search
+- `Esc` closes card search, clears an active multi-card selection, or returns focus to the terminal
 
-No default shortcut is assigned for moving focus into the card controls. This avoids taking over another commonly used Hyper or macOS shortcut.
+No default shortcut is assigned for moving focus directly into card controls. This avoids taking over another commonly used Hyper or macOS shortcut.
+
+## Card search
+
+Press `⌘⇧F` or choose **Search cards** from the Hyper Cards menu to search cards from the current terminal session.
+
+The search checks command text and captured output as you type. Matching cards remain at full strength while nonmatching cards are visually reduced.
+
+![Card search](assets/screenshots/card-search.png)
+
+The count beside the search field reports the number of matches. With an empty search field, it reports the number of cards in the current session.
+
+Choose **Close** or press `Esc` to leave search. Closing search does not remove or change any cards.
+
+`⌘F` remains available for Hyper's normal terminal search.
 
 ## Command history
 
@@ -177,6 +212,10 @@ Cards can span many terminal rows while staying connected to the command that pr
 
 Card placement and controls remain connected to the correct output while the terminal scrolls.
 
+Hyper Cards also measures the visible width of the final prompt line before a command starts. Output then begins beneath the command text instead of beneath the prompt.
+
+![Output position](assets/screenshots/output-alignment.png)
+
 ## Clearing the terminal
 
 Hyper Cards recognizes a full terminal clear and removes its card overlays and markers along with the terminal contents.
@@ -236,15 +275,17 @@ HyperCards/
 ├── NOTICE
 ├── assets/
 │   └── screenshots/
-│       ├── batch-copy-menu.png
-│       ├── batch-count.png
-│       ├── batch-count-stack.png
+│       ├── actions-menu.png
+│       ├── batch-grouping.png
+│       ├── batch-spotlight.png
+│       ├── card-search.png
 │       ├── collapsed-card.png
-│       ├── copy-menu.png
+│       ├── command-status.png
 │       ├── history-picker.png
 │       ├── hyper-cards-overview.png
 │       ├── long-output.png
 │       ├── multi-select.png
+│       ├── output-alignment.png
 │       └── prompt-main.png
 ├── fonts/
 │   ├── FiraCodeNerdFontMonoShort76-Regular.ttf
@@ -301,6 +342,20 @@ It is not meant to replace an existing `~/.hyper.js` automatically.
 
 People with an existing Hyper setup can compare the preset with their current configuration and copy only the sections they want.
 
+### Hyper Cards UI text size
+
+Hyper Cards uses a 10.5px base UI text size unless an explicit size is set.
+
+To set a separate size, add this rule inside the existing `css` setting in `~/.hyper.js`:
+
+```css
+.hyper-command-cards-root {
+  --hcc-user-ui-font-size: 14px;
+}
+```
+
+`14px` is an example rather than a required value. Hyper Cards accepts values from `9px` through `24px`.
+
 ## Starship configuration
 
 `presets/starship.toml` contains the matching prompt configuration used during development and testing.
@@ -312,22 +367,34 @@ People with an existing Starship setup can copy the sections they want rather th
 The following have been tested on macOS:
 
 - card creation
-- copy controls
-- multi-card selection
+- per-card Actions menu
+- output, command, and command + output copying
+- command success and failure results
+- elapsed-time display
+- common exit-code descriptions
+- multi-card selection mode
 - bulk output copying
 - bulk command copying
 - bulk command + output copying
 - terminal-order copying when cards are selected out of order
 - selection clearing with Cancel and `Esc`
+- session-wide Collapse all and Expand all
+- current-session card search
+- `⌘⇧F` card-search shortcut
+- search match counts
+- card-search close with `Esc`
 - command batch creation from multiline pastes
 - batch-level output copying
 - batch-level command copying
 - batch-level command + output copying
-- batch count tracking while terminal content moves
-- multiple batch counts in the same session
+- batch success and failure states
+- batch-tab hover and keyboard focus behavior
+- batch positioning while terminal content moves
+- multiple batches in the same session
 - card collapse and restore
 - terminal-row reclamation after collapse
 - long-output scrolling
+- output starting beneath command text
 - multiline command queuing
 - full terminal clear with no card remnants
 - new card creation after a clear
@@ -336,11 +403,11 @@ The following have been tested on macOS:
 - custom Hyper history shortcut overrides
 - `Ctrl+R` history access
 - `Esc` history close
-- keyboard navigation within card controls
+- keyboard navigation within controls and menus
 
 ## Screenshots and privacy
 
-The screenshots in this repository were reviewed before publication for visible personal information, sensitive strings, and image metadata.
+The screenshots in this repository were reviewed before publication for visible personal information and sensitive strings. Nonessential PNG metadata was removed from the final images.
 
 They use example terminal content and document how Hyper Cards looks and behaves. Appearance may vary with the terminal theme, font, shell configuration, and Starship settings.
 

@@ -20,7 +20,11 @@ module.exports = {
     selectionColor: "rgba(79, 105, 128, 0.55)",
     borderColor: "#303030",
 
-    css: "",
+    css: `
+      .hyper-command-cards-root {
+        --hcc-user-ui-font-size: 14px;
+      }
+    `,
     termCSS: "",
     padding: "14px 28px",
 
@@ -55,7 +59,6 @@ module.exports = {
   },
 
   plugins: [
-    "hyper-font-ligatures",
   ],
 
   localPlugins: [

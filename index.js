@@ -15,7 +15,8 @@ const SCROLLBAR_TRACK_COLOR = "transparent";
 const SCROLLBAR_THUMB_COLOR = "var(--hcc-scrollbar-thumb, rgba(170, 178, 186, 0.34))";
 
 const OUTPUT_INDENT_COLUMNS = 2;
-const OUTPUT_INDENT = `\x1b[${OUTPUT_INDENT_COLUMNS}C`;
+const HCC_INDENT_PREFIX =
+  "\x1b]777;hcc;indent;"
 
 const HCC_OUTPUT_MARKER = "\x1b]777;hcc;output\x07";
 const HCC_DONE_MARKER = "\x1b]777;hcc;done\x07";
@@ -56,6 +57,56 @@ function getPartialMarkerSuffix(data) {
     }
   }
 
+  const indentStart =
+    data.lastIndexOf(
+      HCC_INDENT_PREFIX[0]
+    );
+
+  if (
+    indentStart !== -1
+  ) {
+    const tail =
+      data.slice(
+        indentStart
+      );
+
+    if (
+      HCC_INDENT_PREFIX
+        .startsWith(
+          tail
+        )
+    ) {
+      if (
+        tail.length >
+        longest.length
+      ) {
+        longest =
+          tail;
+      }
+    } else if (
+      tail.startsWith(
+        HCC_INDENT_PREFIX
+      )
+    ) {
+      const remainder =
+        tail.slice(
+          HCC_INDENT_PREFIX.length
+        );
+
+      if (
+        /^\d{0,3}$/
+          .test(
+            remainder
+          ) &&
+        tail.length >
+          longest.length
+      ) {
+        longest =
+          tail;
+      }
+    }
+  }
+
   return longest;
 }
 
@@ -77,7 +128,23 @@ function indentOutput(
       char !== "\r" &&
       char !== "\n"
     ) {
-      result += OUTPUT_INDENT;
+      const columns =
+        Math.max(
+          0,
+          Math.min(
+            999,
+            Number(
+              state.indentColumns
+            ) ||
+              OUTPUT_INDENT_COLUMNS
+          )
+        );
+
+      if (columns > 0) {
+        result +=
+          `\x1b[${columns}C`;
+      }
+
       state.needsIndent = false;
     }
 
@@ -92,6 +159,42 @@ function indentOutput(
   }
 
   return result;
+}
+
+function describeExitCode(
+  exitCode
+) {
+  switch (exitCode) {
+    case 1:
+      return "Command reported an error";
+
+    case 126:
+      return "Command could not be executed";
+
+    case 127:
+      return "Command not found";
+
+    case 130:
+      return "Interrupted with Ctrl+C";
+
+    case 137:
+      return "Killed";
+
+    case 143:
+      return "Terminated";
+
+    default:
+      if (
+        exitCode >= 129 &&
+        exitCode <= 165
+      ) {
+        return `Terminated by signal ${
+          exitCode - 128
+        }`;
+      }
+
+      return "Command failed";
+  }
 }
 
 exports.middleware =
@@ -113,6 +216,8 @@ exports.middleware =
       outputStates.get(uid) || {
         active: false,
         needsIndent: false,
+        indentColumns:
+          OUTPUT_INDENT_COLUMNS,
         pending: "",
       };
 
@@ -181,6 +286,41 @@ exports.middleware =
             b.index
         );
 
+      const indentMatch =
+        data
+          .slice(
+            position
+          )
+          .match(
+            /\x1b]777;hcc;indent;(\d{3})\x07/
+          );
+
+      if (indentMatch) {
+        candidates.push({
+          marker:
+            indentMatch[0],
+
+          type:
+            "indent",
+
+          columns:
+            Number.parseInt(
+              indentMatch[1],
+              10
+            ),
+
+          index:
+            position +
+            indentMatch.index,
+        });
+
+        candidates.sort(
+          (a, b) =>
+            a.index -
+            b.index
+        );
+      }
+
       if (
         !candidates.length
       ) {
@@ -222,6 +362,22 @@ exports.middleware =
 
       if (
         nextMarker.type ===
+        "indent"
+      ) {
+        state.indentColumns =
+          Number.isFinite(
+            nextMarker.columns
+          )
+            ? Math.max(
+                0,
+                Math.min(
+                  999,
+                  nextMarker.columns
+                )
+              )
+            : OUTPUT_INDENT_COLUMNS;
+      } else if (
+        nextMarker.type ===
         "output"
       ) {
         state.active = true;
@@ -231,6 +387,14 @@ exports.middleware =
         state.active = false;
         state.needsIndent =
           false;
+
+        if (
+          nextMarker.type ===
+          "prompt"
+        ) {
+          state.indentColumns =
+            OUTPUT_INDENT_COLUMNS;
+        }
       }
 
       position =
@@ -853,6 +1017,41 @@ function applyThemeVariables(
     ) ||
     {};
 
+  const requestedUiFontSize =
+    Number.parseFloat(
+      getComputedStyle(
+        root
+      )
+        .getPropertyValue(
+          "--hcc-user-ui-font-size"
+        )
+        .trim()
+    );
+
+  const hccUiFontSize =
+    Number.isFinite(
+      requestedUiFontSize
+    ) &&
+    requestedUiFontSize > 0
+      ? Math.max(
+          9,
+          Math.min(
+            24,
+            requestedUiFontSize
+          )
+        )
+      : 10.5;
+
+  const hccUiPx =
+    (ratio) =>
+      `${
+        Math.round(
+          hccUiFontSize *
+          ratio *
+          100
+        ) / 100
+      }px`;
+
   const background =
     hccParseColor(
       theme.background,
@@ -951,6 +1150,31 @@ function applyThemeVariables(
       : [255, 255, 255];
 
   const properties = {
+    "--hcc-ui-font-size":
+      hccUiPx(
+        1
+      ),
+
+    "--hcc-ui-font-small":
+      hccUiPx(
+        7 / 10.5
+      ),
+
+    "--hcc-ui-font-medium":
+      hccUiPx(
+        9.5 / 10.5
+      ),
+
+    "--hcc-ui-font-large":
+      hccUiPx(
+        13 / 10.5
+      ),
+
+    "--hcc-ui-line-height":
+      hccUiPx(
+        16 / 10.5
+      ),
+
     "--hcc-background":
       hccRgb(
         background
@@ -1125,10 +1349,10 @@ function applyButtonBase(
         "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif",
 
       fontSize:
-        "10.5px",
+        "var(--hcc-ui-font-size, 10.5px)",
 
       lineHeight:
-        "16px",
+        "var(--hcc-ui-line-height, 16px)",
 
       cursor:
         "pointer",
@@ -1337,7 +1561,7 @@ function createCopyControl(
         "center",
 
       fontSize:
-        "7px",
+        "var(--hcc-ui-font-small, 7px)",
 
       lineHeight:
         "1",
@@ -1951,6 +2175,144 @@ function createCopyControl(
       }
     );
 
+  if (
+    card &&
+    card.useActionsMenu
+  ) {
+    copyButton.style.display =
+      "none";
+
+    menuButton.textContent =
+      "Actions ▾";
+
+    menuButton.title =
+      "Card actions";
+
+    menuButton.setAttribute(
+      "aria-label",
+      "Card actions"
+    );
+
+    Object.assign(
+      menuButton.style,
+      {
+        minWidth:
+          "auto",
+
+        padding:
+          "1px 8px",
+
+        borderRadius:
+          "7px",
+
+        fontSize:
+          "var(--hcc-ui-font-size, 10.5px)",
+
+        lineHeight:
+          "var(--hcc-ui-line-height, 16px)",
+      }
+    );
+
+    menu.style.minWidth =
+      "clamp(180px, calc(var(--hcc-ui-font-size, 10.5px) * 15), 280px)";
+
+    const collapseItem =
+      document
+        .createElement(
+          "button"
+        );
+
+    collapseItem.type =
+      "button";
+
+    collapseItem.setAttribute(
+      "role",
+      "menuitem"
+    );
+
+    collapseItem.tabIndex =
+      -1;
+
+    applyButtonBase(
+      collapseItem
+    );
+
+    Object.assign(
+      collapseItem.style,
+      {
+        display:
+          "block",
+
+        width:
+          "100%",
+
+        padding:
+          "5px 8px",
+
+        borderRadius:
+          "6px",
+
+        textAlign:
+          "left",
+
+        whiteSpace:
+          "nowrap",
+      }
+    );
+
+    const updateCollapseItem =
+      () => {
+        collapseItem.textContent =
+          card.collapsed
+            ? "Expand card"
+            : "Collapse card";
+      };
+
+    updateCollapseItem();
+
+    menuButton.addEventListener(
+      "click",
+      () => {
+        updateCollapseItem();
+      },
+      true
+    );
+
+    collapseItem.addEventListener(
+      "click",
+      (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        if (
+          typeof card.setCollapsed ===
+          "function"
+        ) {
+          card.setCollapsed(
+            !card.collapsed
+          );
+        }
+
+        updateCollapseItem();
+
+        menu.style.display =
+          "none";
+
+        menuButton.setAttribute(
+          "aria-expanded",
+          "false"
+        );
+      }
+    );
+
+    menu.appendChild(
+      collapseItem
+    );
+
+    card.updateActionsCollapseLabel =
+      updateCollapseItem;
+  }
+
   control.appendChild(
     copyButton
   );
@@ -2049,10 +2411,10 @@ function createCollapseControl(
         "7px",
 
       fontSize:
-        "14px",
+        "var(--hcc-ui-font-large, 14px)",
 
       lineHeight:
-        "16px",
+        "var(--hcc-ui-line-height, 16px)",
     }
   );
 
@@ -2313,6 +2675,9 @@ exports.decorateTerm =
 
         this.selectedCards =
           new Set();
+
+        this.selectionMode =
+          false;
 
         this.bulkBar =
           null;
@@ -2658,8 +3023,11 @@ exports.decorateTerm =
         if (
           event.key ===
             "Escape" &&
-          this.selectedCards
-            .size
+          (
+            this.selectionMode ||
+            this.selectedCards
+              .size
+          )
         ) {
           event.preventDefault();
           event.stopPropagation();
@@ -2737,6 +3105,8 @@ exports.decorateTerm =
             (button) =>
               button &&
               button.isConnected &&
+              button.offsetParent !==
+                null &&
               !button.disabled
           );
 
@@ -2804,8 +3174,11 @@ exports.decorateTerm =
             top:
               "10px",
 
-            right:
-              "16px",
+            left:
+              "50%",
+
+            transform:
+              "translateX(-50%)",
 
             display:
               "none",
@@ -2827,15 +3200,15 @@ exports.decorateTerm =
         trigger.type =
           "button";
 
-        trigger.textContent =
-          "Cards ▾";
+        trigger.innerHTML =
+          '<svg aria-hidden="true" viewBox="8 10 996 1517" width="12" height="18"><path fill="currentColor" d="M 961 18 L 601 197 L 681 231 L 354 384 L 537 429 L 153 669 L 390 666 L 50 936 L 244 945 L 37 1145 L 203 1147 L 18 1518 L 365 1385 L 294 1344 L 563 1236 L 455 1196 L 805 1017 L 601 981 L 940 753 L 683 742 L 974 538 L 741 483 L 995 261 L 826 277 Z"/><path fill="var(--hcc-background, #212121)" d="M 884 91 L 691 189 L 773 213 L 773 230 L 449 376 L 645 408 L 269 641 L 419 621 L 489 627 L 385 726 L 143 909 L 333 901 L 118 1118 L 268 1102 L 90 1445 L 272 1375 L 205 1340 L 454 1237 L 358 1198 L 696 1037 L 509 1019 L 497 1001 L 847 777 L 577 789 L 566 776 L 879 556 L 649 503 L 880 306 L 757 315 Z"/></svg>';
 
         trigger.title =
-          "Card actions";
+          "Hyper Cards";
 
         trigger.setAttribute(
           "aria-label",
-          "Card actions"
+          "Hyper Cards menu"
         );
 
         trigger.setAttribute(
@@ -2855,8 +3228,23 @@ exports.decorateTerm =
         Object.assign(
           trigger.style,
           {
+            width:
+              "26px",
+
+            height:
+              "26px",
+
             padding:
-              "4px 8px",
+              "4px",
+
+            display:
+              "flex",
+
+            alignItems:
+              "center",
+
+            justifyContent:
+              "center",
 
             borderRadius:
               "8px",
@@ -2891,8 +3279,11 @@ exports.decorateTerm =
             top:
               "calc(100% + 6px)",
 
-            right:
-              "0",
+            left:
+              "50%",
+
+            transform:
+              "translateX(-50%)",
 
             display:
               "none",
@@ -2903,8 +3294,17 @@ exports.decorateTerm =
             gap:
               "2px",
 
+            width:
+              "clamp(132px, calc(var(--hcc-ui-font-size, 10.5px) * 10.5), 220px)",
+
             minWidth:
               "132px",
+
+            maxWidth:
+              "min(220px, calc(100vw - 32px))",
+
+            boxSizing:
+              "border-box",
 
             padding:
               "5px",
@@ -2937,8 +3337,103 @@ exports.decorateTerm =
             button.type =
               "button";
 
-            button.textContent =
-              label;
+            const icon =
+              document
+                .createElement(
+                  "span"
+                );
+
+            const textLabel =
+              document
+                .createElement(
+                  "span"
+                );
+
+            Object.assign(
+              icon.style,
+              {
+                width:
+                  "clamp(16px, calc(var(--hcc-ui-font-size, 10.5px) * 1.45), 30px)",
+
+                minWidth:
+                  "clamp(16px, calc(var(--hcc-ui-font-size, 10.5px) * 1.45), 30px)",
+
+                display:
+                  "inline-flex",
+
+                alignItems:
+                  "center",
+
+                justifyContent:
+                  "center",
+
+                color:
+                  "var(--hcc-muted, #AAB2BA)",
+
+                fontSize:
+                  "var(--hcc-ui-font-size, 11px)",
+              }
+            );
+
+            textLabel.style.flex =
+              "1";
+
+            textLabel.style.whiteSpace =
+              "nowrap";
+
+            button.hccMenuLabel =
+              textLabel;
+
+            button.hccMenuIcon =
+              icon;
+
+            button.hccSetMenuLabel =
+              (nextLabel) => {
+                const icons = {
+                  "Search cards":
+                    "⌕",
+
+                  "Select cards":
+                    "○",
+
+                  "Stop selecting":
+                    "×",
+
+                  "Collapse all":
+                    "−",
+
+                  "Expand all":
+                    "+",
+                };
+
+                if (
+                  nextLabel ===
+                  "Search cards"
+                ) {
+                  icon.innerHTML =
+                    '<svg aria-hidden="true" viewBox="0 0 16 16" width="1em" height="1em"><circle cx="6.5" cy="6.5" r="4.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M9.7 9.7 13.5 13.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+                } else {
+                  icon.textContent =
+                    icons[nextLabel] ||
+                    "·";
+                }
+
+                textLabel.textContent =
+                  nextLabel;
+              };
+
+            button
+              .hccSetMenuLabel(
+                label
+              );
+
+            button.appendChild(
+              icon
+            );
+
+            button.appendChild(
+              textLabel
+            );
 
             button.setAttribute(
               "role",
@@ -2955,11 +3450,20 @@ exports.decorateTerm =
                 width:
                   "100%",
 
+                display:
+                  "flex",
+
+                alignItems:
+                  "center",
+
                 justifyContent:
                   "flex-start",
 
+                gap:
+                  "7px",
+
                 padding:
-                  "5px 7px",
+                  "5px 9px 5px 7px",
 
                 borderRadius:
                   "6px",
@@ -2975,7 +3479,9 @@ exports.decorateTerm =
                 event.preventDefault();
                 event.stopPropagation();
 
-                action();
+                action(
+                  event
+                );
 
                 this
                   .closeCardsMenu();
@@ -2985,6 +3491,8 @@ exports.decorateTerm =
             panel.appendChild(
               button
             );
+
+            return button;
           };
 
         addAction(
@@ -2995,31 +3503,70 @@ exports.decorateTerm =
           }
         );
 
-        addAction(
-          "Collapse all",
-          () => {
-            this
-              .setAllCardsCollapsed(
-                true
-              );
-          }
-        );
+        const selectCardsAction =
+          addAction(
+            "Select cards",
+            (event) => {
+              if (
+                this.selectionMode
+              ) {
+                this
+                  .clearCardSelection();
 
-        addAction(
-          "Expand all",
-          () => {
-            this
-              .setAllCardsCollapsed(
-                false
-              );
-          }
-        );
+                return;
+              }
+
+              this
+                .startCardSelection(
+                  Boolean(
+                    event &&
+                    event.detail === 0
+                  )
+                );
+            }
+          );
+
+        const collapseCardsAction =
+          addAction(
+            "Collapse all",
+            () => {
+              const cards =
+                this.cards.filter(
+                  (card) =>
+                    card.element &&
+                    card.element.isConnected
+                );
+
+              const allCollapsed =
+                cards.length > 0 &&
+                cards.every(
+                  (card) =>
+                    Boolean(
+                      card.collapsed
+                    )
+                );
+
+              this
+                .setAllCardsCollapsed(
+                  !allCollapsed
+                );
+            }
+          );
+
+        this.cardsMenuSelectAction =
+          selectCardsAction;
+
+        this.cardsMenuCollapseAction =
+          collapseCardsAction;
 
         trigger.addEventListener(
           "click",
           (event) => {
             event.preventDefault();
             event.stopPropagation();
+
+            this
+              .updateCardsMenuActions();
 
             const open =
               panel.style
@@ -3101,6 +3648,46 @@ exports.decorateTerm =
             .setAttribute(
               "aria-expanded",
               "false"
+            );
+        }
+      }
+
+      updateCardsMenuActions() {
+        if (
+          this.cardsMenuSelectAction
+        ) {
+          this.cardsMenuSelectAction
+            .hccSetMenuLabel(
+              this.selectionMode
+                ? "Stop selecting"
+                : "Select cards"
+            );
+        }
+
+        const cards =
+          this.cards.filter(
+            (card) =>
+              card.element &&
+              card.element.isConnected
+          );
+
+        const allCollapsed =
+          cards.length > 0 &&
+          cards.every(
+            (card) =>
+              Boolean(
+                card.collapsed
+              )
+          );
+
+        if (
+          this.cardsMenuCollapseAction
+        ) {
+          this.cardsMenuCollapseAction
+            .hccSetMenuLabel(
+              allCollapsed
+                ? "Expand all"
+                : "Collapse all"
             );
         }
       }
@@ -3224,7 +3811,160 @@ exports.decorateTerm =
         }
       }
 
-      ensureSearchPromptShade() {
+      ensureBatchPromptShade() {
+        if (
+          this.batchPromptShade &&
+          this.batchPromptShade
+            .isConnected
+        ) {
+          return this.batchPromptShade;
+        }
+
+        if (!this.overlay) {
+          return null;
+        }
+
+        const shade =
+          document
+            .createElement(
+              "div"
+            );
+
+        Object.assign(
+          shade.style,
+          {
+            position:
+              "absolute",
+
+            display:
+              "none",
+
+            background:
+              "var(--hcc-search-shade, rgba(33, 33, 33, 0.38))",
+
+            pointerEvents:
+              "none",
+
+            zIndex:
+              "20",
+          }
+        );
+
+        this.overlay
+          .appendChild(
+            shade
+          );
+
+        this.batchPromptShade =
+          shade;
+
+        return shade;
+      }
+
+      updateBatchPromptShade(
+      visible
+    ) {
+      const shade =
+        this
+          .ensureBatchPromptShade();
+
+      if (
+        !shade ||
+        !visible ||
+        !this.xterm ||
+        !this.wrapper
+      ) {
+        if (shade) {
+          shade.style.display =
+            "none";
+        }
+
+        return;
+      }
+
+      const screen =
+        this.xterm
+          .screenElement ||
+        (
+          this.xterm.element &&
+          this.xterm.element
+            .querySelector(
+              ".xterm-screen"
+            )
+        );
+
+      if (
+        !screen ||
+        !this.xterm.rows
+      ) {
+        shade.style.display =
+          "none";
+
+        return;
+      }
+
+      const wrapperRect =
+        this.wrapper
+          .getBoundingClientRect();
+
+      const screenRect =
+        screen
+          .getBoundingClientRect();
+
+      const cellHeight =
+        screenRect.height /
+        this.xterm.rows;
+
+      const cursorRow =
+        this.xterm
+          .buffer
+          .active
+          .cursorY || 0;
+
+      const promptStartRow =
+        Math.max(
+          0,
+          cursorRow - 1
+        );
+
+      const promptRows =
+        cursorRow > 0
+          ? 2
+          : 1;
+
+      Object.assign(
+        shade.style,
+        {
+          display:
+            "block",
+
+          left:
+            `${
+              screenRect.left -
+              wrapperRect.left
+            }px`,
+
+          top:
+            `${
+              screenRect.top -
+              wrapperRect.top +
+              promptStartRow *
+                cellHeight
+            }px`,
+
+          width:
+            `${screenRect.width}px`,
+
+          height:
+            `${
+              promptRows *
+              cellHeight
+            }px`,
+        }
+      );
+    }
+
+    ensureSearchPromptShade() {
         if (
           this.searchPromptShade &&
           this.searchPromptShade
@@ -3399,6 +4139,12 @@ exports.decorateTerm =
             right:
               "16px",
 
+          maxWidth:
+            "calc(100vw - 32px)",
+
+          boxSizing:
+            "border-box",
+
             display:
               "none",
 
@@ -3450,7 +4196,7 @@ exports.decorateTerm =
               "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif",
 
             fontSize:
-              "10.5px",
+              "var(--hcc-ui-font-size, 10.5px)",
 
             fontWeight:
               "600",
@@ -3481,10 +4227,13 @@ exports.decorateTerm =
           input.style,
           {
             width:
-              "230px",
+              "clamp(120px, 28vw, 230px)",
 
             minWidth:
               "120px",
+
+          maxWidth:
+            "100%",
 
             padding:
               "4px 7px",
@@ -3505,10 +4254,10 @@ exports.decorateTerm =
               "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif",
 
             fontSize:
-              "11px",
+              "var(--hcc-ui-font-size, 11px)",
 
             lineHeight:
-              "16px",
+              "var(--hcc-ui-line-height, 16px)",
 
             outline:
               "none",
@@ -3539,7 +4288,7 @@ exports.decorateTerm =
               "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif",
 
             fontSize:
-              "10.5px",
+              "var(--hcc-ui-font-size, 10.5px)",
 
             textAlign:
               "right",
@@ -4025,6 +4774,12 @@ exports.decorateTerm =
                     ? "card"
                     : "cards"
                 }`;
+          } else if (
+            matches === 0
+          ) {
+            this.searchCount
+              .textContent =
+                "No matching cards";
           } else {
             this.searchCount
               .textContent =
@@ -4049,9 +4804,46 @@ exports.decorateTerm =
           );
       }
 
+      startCardSelection(
+        focusFirst = false
+      ) {
+        this.selectionMode =
+          true;
+
+        this
+          .updateSelectionUi();
+
+        if (!focusFirst) {
+          return;
+        }
+
+        requestAnimationFrame(
+          () => {
+            const first =
+              this.cards.find(
+                (card) =>
+                  card.selectButton &&
+                  card.selectButton
+                    .isConnected
+              );
+
+            if (
+              first &&
+              first.selectButton
+            ) {
+              first.selectButton
+                .focus();
+            }
+          }
+        );
+      }
+
       clearCardSelection() {
         this.selectedCards
           .clear();
+
+        this.selectionMode =
+          false;
 
         this
           .updateSelectionUi();
@@ -4060,6 +4852,9 @@ exports.decorateTerm =
       toggleCardSelection(
         card
       ) {
+        this.selectionMode =
+          true;
+
         if (
           this.selectedCards
             .has(card)
@@ -4165,8 +4960,24 @@ exports.decorateTerm =
             text
           )
         ) {
-          this
-            .clearCardSelection();
+          if (
+            this.bulkBar &&
+            this.bulkBar
+              ._hccCount
+          ) {
+            this.bulkBar
+              ._hccCount
+              .textContent =
+                "Copied";
+          }
+
+          setTimeout(
+            () => {
+              this
+                .clearCardSelection();
+            },
+            700
+          );
         }
       }
 
@@ -4242,6 +5053,16 @@ exports.decorateTerm =
               "span"
             );
 
+        count.setAttribute(
+          "aria-live",
+          "polite"
+        );
+
+        count.setAttribute(
+          "aria-atomic",
+          "true"
+        );
+
         Object.assign(
           count.style,
           {
@@ -4252,10 +5073,10 @@ exports.decorateTerm =
               "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif",
 
             fontSize:
-              "10.5px",
+              "var(--hcc-ui-font-size, 10.5px)",
 
             lineHeight:
-              "20px",
+              "var(--hcc-ui-line-height, 20px)",
 
             whiteSpace:
               "nowrap",
@@ -4291,42 +5112,6 @@ exports.decorateTerm =
           }
         );
 
-        const copyButton =
-          document
-            .createElement(
-              "button"
-            );
-
-        copyButton.type =
-          "button";
-
-        copyButton.textContent =
-          "Copy";
-
-        copyButton.title =
-          "Copy selected output";
-
-        copyButton
-          .setAttribute(
-            "aria-label",
-            "Copy selected output"
-          );
-
-        applyButtonBase(
-          copyButton
-        );
-
-        Object.assign(
-          copyButton.style,
-          {
-            padding:
-              "1px 7px",
-
-            borderRadius:
-              "7px 0 0 7px",
-          }
-        );
-
         const menuButton =
           document
             .createElement(
@@ -4337,15 +5122,15 @@ exports.decorateTerm =
           "button";
 
         menuButton.textContent =
-          "▼";
+          "Copy selected ▾";
 
         menuButton.title =
-          "Copy selected options";
+          "Copy selected cards";
 
         menuButton
           .setAttribute(
             "aria-label",
-            "Copy selected options"
+            "Copy selected cards"
           );
 
         menuButton
@@ -4368,19 +5153,16 @@ exports.decorateTerm =
           menuButton.style,
           {
             minWidth:
-              "22px",
+              "0",
 
             padding:
-              "0 5px",
+              "1px 8px",
 
             fontSize:
-              "7px",
-
-            borderLeft:
-              "1px solid var(--hcc-border, #3D4850)",
+              "var(--hcc-ui-font-size, 10.5px)",
 
             borderRadius:
-              "0 7px 7px 0",
+              "7px",
           }
         );
 
@@ -4537,23 +5319,6 @@ exports.decorateTerm =
           );
         }
 
-        copyButton
-          .addEventListener(
-            "click",
-            async (event) => {
-              event
-                .preventDefault();
-
-              event
-                .stopPropagation();
-
-              await this
-                .copySelectedCards(
-                  "output"
-                );
-            }
-          );
-
         menuButton
           .addEventListener(
             "click",
@@ -4636,10 +5401,6 @@ exports.decorateTerm =
           );
 
         copyGroup.appendChild(
-          copyButton
-        );
-
-        copyGroup.appendChild(
           menuButton
         );
 
@@ -4714,7 +5475,7 @@ exports.decorateTerm =
             card.selectButton
               .textContent =
                 selected
-                  ? "✓"
+                  ? "●"
                   : "○";
 
             card.selectButton
@@ -4738,17 +5499,31 @@ exports.decorateTerm =
                   ? "var(--hcc-accent-text, #DCEBE6)"
                   : "var(--hcc-muted, #AAB2BA)";
 
-            const hovered =
-              card.controls &&
-              card.controls
-                .matches(
-                  ":hover"
-                );
+            card.selectButton
+              .style
+              .display =
+                (
+                  this.selectionMode ||
+                  selected
+                )
+                  ? "block"
+                  : "none";
 
             card.selectButton
               .style
               .opacity =
                 "1";
+          }
+
+          if (
+            card.element
+          ) {
+            card.element
+              .style
+              .borderColor =
+                selected
+                  ? "var(--hcc-accent, #95B8AE)"
+                  : "var(--hcc-border, #3D4850)";
           }
 
           if (
@@ -5299,6 +6074,11 @@ exports.decorateTerm =
         header.className =
           "hcc-command-group-header";
 
+        header.setAttribute(
+          "role",
+          "group"
+        );
+
         Object.assign(
           header.style,
           {
@@ -5346,6 +6126,16 @@ exports.decorateTerm =
               "span"
             );
 
+        label.setAttribute(
+          "aria-live",
+          "polite"
+        );
+
+        label.setAttribute(
+          "aria-atomic",
+          "true"
+        );
+
         Object.assign(
           label.style,
           {
@@ -5359,15 +6149,18 @@ exports.decorateTerm =
               "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif",
 
             fontSize:
-              "10.5px",
+              "var(--hcc-ui-font-size, 10.5px)",
 
             lineHeight:
-              "20px",
+              "var(--hcc-ui-line-height, 20px)",
 
             whiteSpace:
               "nowrap",
           }
         );
+
+        header.style.overflow =
+          "visible";
 
         const copyControl =
           createCopyControl(
@@ -5413,19 +6206,264 @@ exports.decorateTerm =
           collapseControl.style.display ||
           "flex";
 
+        const actionsDock =
+          document
+            .createElement(
+              "div"
+            );
+
+        Object.assign(
+          actionsDock.style,
+          {
+            position:
+              "absolute",
+
+            left:
+              "calc(clamp(34px, calc(var(--hcc-ui-font-size, 10.5px) * 2.6), 50px) + 3px)",
+
+            top:
+              "50%",
+
+            transform:
+              "translateY(-50%)",
+
+            display:
+              "none",
+
+            alignItems:
+              "center",
+
+            gap:
+              "4px",
+
+            padding:
+              "2px 4px",
+
+            background:
+              "var(--hcc-panel-surface, rgba(33, 33, 33, 0.96))",
+
+            border:
+              "1px solid var(--hcc-border, #3D4850)",
+
+            borderRadius:
+              "6px",
+
+            boxShadow:
+              "0 2px 8px rgba(0, 0, 0, 0.24)",
+
+            whiteSpace:
+              "nowrap",
+
+            zIndex:
+              "3",
+          }
+        );
+
         copyControl.style.display =
           "none";
 
         collapseControl.style.display =
           "none";
 
+        const setGroupSpotlight =
+          (active) => {
+            if (
+              this.searchQuery
+            ) {
+              return;
+            }
+
+            this
+              .updateBatchPromptShade(
+                Boolean(
+                  active
+                )
+              );
+
+            const groupCards =
+              new Set(
+                group.cards
+              );
+
+            for (
+              const card
+              of this.cards
+            ) {
+              if (
+                !card ||
+                !card.element ||
+                !card.element
+                  .isConnected
+              ) {
+                continue;
+              }
+
+              const belongsToGroup =
+                groupCards.has(
+                  card
+                );
+
+              if (
+                !card.groupDimShade
+              ) {
+                const shade =
+                  document
+                    .createElement(
+                      "div"
+                    );
+
+                Object.assign(
+                  shade.style,
+                  {
+                    position:
+                      "absolute",
+
+                    inset:
+                      "0",
+
+                    display:
+                      "none",
+
+                    background:
+                      "var(--hcc-search-shade, rgba(33, 33, 33, 0.38))",
+
+                    borderRadius:
+                      `${BORDER_RADIUS}px`,
+
+                    pointerEvents:
+                      "none",
+
+                    zIndex:
+                      "18",
+                  }
+                );
+
+                card.element
+                  .appendChild(
+                    shade
+                  );
+
+                card.groupDimShade =
+                  shade;
+              }
+
+              const dimmed =
+                active &&
+                !belongsToGroup;
+
+              card.groupDimShade
+                .style
+                .display =
+                  dimmed
+                    ? "block"
+                    : "none";
+
+              if (
+                card.controls
+              ) {
+                card.controls
+                  .style
+                  .opacity =
+                    dimmed
+                      ? "0.38"
+                      : "1";
+              }
+
+              if (
+                card.groupHighlight
+              ) {
+                card.groupHighlight
+                  .style
+                  .opacity =
+                    "0";
+              }
+            }
+
+            for (
+              const currentGroup
+              of this.commandGroups
+                .values()
+            ) {
+              const selected =
+                currentGroup ===
+                  group;
+
+              const opacity =
+                active &&
+                !selected
+                  ? "0.30"
+                  : "1";
+
+              if (
+                currentGroup.header
+              ) {
+                currentGroup.header
+                  .style
+                  .opacity =
+                    opacity;
+              }
+
+              if (
+                currentGroup.rail
+              ) {
+                currentGroup.rail
+                  .style
+                  .opacity =
+                    opacity;
+              }
+
+              if (
+                currentGroup.topCap
+              ) {
+                currentGroup.topCap
+                  .style
+                  .opacity =
+                    opacity;
+              }
+
+              if (
+                currentGroup.bottomCap
+              ) {
+                currentGroup.bottomCap
+                  .style
+                  .opacity =
+                    opacity;
+              }
+            }
+          };
+
         const showGroupCopy =
           () => {
+            copyControl.style.marginLeft =
+              "0";
+
+            collapseControl.style.marginLeft =
+              "0";
+
             copyControl.style.display =
               copyDisplay;
 
             collapseControl.style.display =
               collapseDisplay;
+
+            actionsDock.style.display =
+                "flex";
+
+              actionsDock.style.background =
+                "var(--hcc-background, #212121)";
+
+            setGroupSpotlight(
+                true
+              );
+
+              actionsDock.style.opacity =
+                "1";
+
+              copyControl.style.opacity =
+                "1";
+
+              collapseControl.style.opacity =
+                "1";
           };
 
         const hideGroupCopy =
@@ -5440,11 +6478,12 @@ exports.decorateTerm =
                     document.activeElement
                   )
                 ) {
-                  copyControl.style.display =
+                  actionsDock.style.display =
                     "none";
 
-                  collapseControl.style.display =
-                    "none";
+                  setGroupSpotlight(
+                    false
+                  );
                 }
               }
             );
@@ -5495,12 +6534,16 @@ exports.decorateTerm =
           label
         );
 
-        header.appendChild(
+        actionsDock.appendChild(
           copyControl
         );
 
-        header.appendChild(
+        actionsDock.appendChild(
           collapseControl
+        );
+
+        header.appendChild(
+          actionsDock
         );
 
         this.cardLayer
@@ -5516,8 +6559,63 @@ exports.decorateTerm =
         group.rail =
           rail;
 
+        rail.style.display =
+          "none";
+
+        this.cardLayer
+          .querySelectorAll(
+            ".hcc-command-group-top-cap, .hcc-command-group-bottom-cap"
+          )
+          .forEach(
+            (cap) => {
+              cap.style.display =
+                "none";
+            }
+          );
+
         group.header =
           header;
+
+        Object.assign(
+          header.style,
+          {
+            width:
+              "clamp(34px, calc(var(--hcc-ui-font-size, 10.5px) * 2.6), 50px)",
+
+            minWidth:
+              "clamp(34px, calc(var(--hcc-ui-font-size, 10.5px) * 2.6), 50px)",
+
+            minHeight:
+              "clamp(18px, calc(var(--hcc-ui-line-height, 16px) + 2px), 32px)",
+
+            boxSizing:
+              "border-box",
+
+            justifyContent:
+              "center",
+
+            padding:
+              "1px 4px",
+
+            background:
+              "var(--hcc-panel-surface, rgba(33, 33, 33, 0.96))",
+
+            border:
+              "1px solid var(--hcc-border, #3D4850)",
+
+            borderRight:
+              "1px solid var(--hcc-accent-border-soft, rgba(149, 184, 174, 0.58))",
+
+            borderRadius:
+              "6px 4px 4px 6px",
+
+            boxShadow:
+              "none",
+
+            transform:
+              "translateX(calc(-50% + 12px))",
+          }
+        );
 
         group.label =
           label;
@@ -5859,27 +6957,82 @@ exports.decorateTerm =
           if (
             group.label
           ) {
-            const batchText =
+            const complete =
               cards.length ===
-                group.total
-                ? `${group.total}`
-                : `${cards.length}/${group.total}`;
+                group.total;
+
+            const failed =
+              cards.some(
+                (card) =>
+                  Number.isInteger(
+                    card.exitCode
+                  ) &&
+                  card.exitCode !== 0
+              );
+
+            const passed =
+              complete &&
+              !failed &&
+              cards.every(
+                (card) =>
+                  Number.isInteger(
+                    card.exitCode
+                  ) &&
+                  card.exitCode === 0
+              );
+
+            group.label.innerHTML =
+              passed
+                ? `<svg aria-hidden="true" viewBox="0 0 12 12" width="10" height="10" style="display:block;flex:none"><path d="M2.2 6.2 4.8 8.7 9.8 3.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span>${group.total}</span>`
+                : "";
+
+            if (!passed) {
+              group.label.textContent =
+                failed
+                  ? `! ${group.total}`
+                  : `${group.total}`;
+            }
+
+            Object.assign(
+              group.label.style,
+              {
+                display:
+                  "inline-flex",
+
+                alignItems:
+                  "center",
+
+                justifyContent:
+                  "center",
+
+                gap:
+                  passed ? "3px" : "0",
+              }
+            );
 
             group.label
-              .textContent =
-                batchText;
+              .style
+              .color =
+                failed
+                  ? "var(--hcc-failure, #D8A2A2)"
+                  : passed
+                    ? "var(--hcc-success, #A9C9A3)"
+                    : "var(--hcc-accent-text, #D6E6E1)";
 
             if (
               group.header
             ) {
               const description =
-                cards.length ===
-                  group.total
-                  ? `${group.total}-command batch`
-                  : `${cards.length} of ${group.total} commands in batch`;
+                failed
+                  ? `${group.total}-command batch, failed`
+                  : passed
+                    ? `${group.total}-command batch, completed successfully`
+                    : `${cards.length} of ${group.total} commands completed`;
 
-              group.header.title =
-                description;
+            group.header
+              .removeAttribute(
+                "title"
+              );
 
               group.header
                 .setAttribute(
@@ -6180,6 +7333,35 @@ exports.decorateTerm =
       ) {
         const message =
           String(data);
+
+        if (
+          message.startsWith(
+            "hcc;indent;"
+          )
+        ) {
+          const indentColumns =
+            Number.parseInt(
+              message.split(
+                ";"
+              )[2],
+              10
+            );
+
+          this.outputIndentColumns =
+            Number.isFinite(
+              indentColumns
+            )
+              ? Math.max(
+                  0,
+                  Math.min(
+                    999,
+                    indentColumns
+                  )
+                )
+              : OUTPUT_INDENT_COLUMNS;
+
+          return true;
+        }
 
         if (
           message.startsWith(
@@ -6730,6 +7912,21 @@ exports.decorateTerm =
               "span"
             );
 
+          statusLabel.className =
+            "hcc-card-status";
+
+          statusLabel
+            .setAttribute(
+              "aria-live",
+              "polite"
+            );
+
+          statusLabel
+            .setAttribute(
+              "aria-atomic",
+              "true"
+            );
+
         const hasExitCode =
           Number.isInteger(
             card.exitCode
@@ -6772,13 +7969,21 @@ exports.decorateTerm =
         if (hasExitCode) {
           const statusText =
             success
-              ? "✓ Success"
-              : `! Failed · code ${card.exitCode}`;
+              ? (
+                  durationText
+                    ? `✓ ${durationText}`
+                    : "✓"
+                )
+              : `! Code ${card.exitCode}: ${describeExitCode(card.exitCode)}`;
 
           statusLabel.textContent =
-            durationText
-              ? `${statusText} · ${durationText}`
-              : statusText;
+            success
+              ? statusText
+              : (
+                  durationText
+                    ? `${statusText} · ${durationText}`
+                    : statusText
+                );
 
           statusLabel.title =
             success
@@ -6789,8 +7994,8 @@ exports.decorateTerm =
                 )
               : (
                   durationText
-                    ? `Command failed with exit code ${card.exitCode} after ${durationText}`
-                    : `Command failed with exit code ${card.exitCode}`
+                    ? `${describeExitCode(card.exitCode)}. Exit code ${card.exitCode} after ${durationText}`
+                    : `${describeExitCode(card.exitCode)}. Exit code ${card.exitCode}`
                 );
 
           statusLabel
@@ -6847,16 +8052,25 @@ exports.decorateTerm =
               "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif",
 
             fontSize:
-              "10.5px",
+              "var(--hcc-ui-font-size, 10.5px)",
 
             lineHeight:
-              "16px",
+              "var(--hcc-ui-line-height, 16px)",
 
             fontWeight:
               "500",
 
             whiteSpace:
               "nowrap",
+
+            maxWidth:
+              "min(420px, 42vw)",
+
+            overflow:
+              "hidden",
+
+            textOverflow:
+              "ellipsis",
 
             pointerEvents:
               "none",
@@ -6866,11 +8080,17 @@ exports.decorateTerm =
         card.statusLabel =
           statusLabel;
 
+        card.useActionsMenu =
+          true;
+
         const copyControl =
           createCopyControl(card);
 
         const collapseControl =
           createCollapseControl(card);
+
+        collapseControl.style.display =
+          "none";
 
         card.copyControl =
           copyControl;
@@ -6948,6 +8168,9 @@ exports.decorateTerm =
 
             opacity:
               "1",
+
+            display:
+              "none",
           }
         );
 
@@ -8027,21 +9250,7 @@ exports.decorateTerm =
                 "absolute",
 
               right:
-                `${
-                  CARD_SIDE_GAP +
-                  10 +
-                  (
-                    this.cardsMenuRoot &&
-                    this.cardsMenuRoot
-                      .style
-                      .display !==
-                      "none"
-                      ? this.cardsMenuRoot
-                          .offsetWidth +
-                        10
-                      : 0
-                  )
-                }px`,
+                `${CARD_SIDE_GAP + 10}px`,
 
               transform:
                 "none",

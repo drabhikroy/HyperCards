@@ -17,6 +17,19 @@ PROMPT_EOL_MARK=''
 autoload -Uz add-zsh-hook
 autoload -Uz add-zle-hook-widget
 
+_hcc_prompt_columns() {
+  emulate -L zsh
+  setopt localoptions extendedglob promptsubst
+
+  local hcc_prompt
+  hcc_prompt=$(print -P -- "$PROMPT")
+  hcc_prompt="${hcc_prompt##*$'\n'}"
+  hcc_prompt="${hcc_prompt//$'\r'/}"
+  hcc_prompt="${hcc_prompt//$'\e'\[[0-9;]##[[:alpha:]]/}"
+
+  print -r -- ${#hcc_prompt}
+}
+
 _hcc_preexec() {
   printf '\r\n'
 
@@ -34,6 +47,18 @@ _hcc_preexec() {
       HCC_GROUP_INDEX=$(( HCC_GROUP_INDEX + 1 ))
     fi
   fi
+
+  local -i hcc_indent
+  hcc_indent=$(_hcc_prompt_columns)
+
+  (( hcc_indent < 0 )) &&
+    hcc_indent=0
+
+  (( hcc_indent > 999 )) &&
+    hcc_indent=999
+
+  printf '\e]777;hcc;indent;%03d\a' \
+    "$hcc_indent"
 
   printf '\e]777;hcc;output\a'
 }
