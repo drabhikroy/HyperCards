@@ -719,6 +719,59 @@ function extractCommand(
   return lines.join("\n").trim();
 }
 
+function extractWrappedCommandRows(
+  xterm,
+  startMarker,
+  outputMarker
+) {
+  if (
+    !xterm ||
+    !startMarker ||
+    !outputMarker ||
+    startMarker.isDisposed ||
+    outputMarker.isDisposed
+  ) {
+    return [];
+  }
+
+  const rows = [];
+  const buffer =
+    xterm.buffer.active;
+
+  for (
+    let lineNumber =
+      startMarker.line;
+    lineNumber <
+      outputMarker.line;
+    lineNumber++
+  ) {
+    const line =
+      buffer.getLine(
+        lineNumber
+      );
+
+    if (
+      !line ||
+      !line.isWrapped
+    ) {
+      continue;
+    }
+
+    rows.push({
+      row:
+        lineNumber -
+        startMarker.line,
+
+      text:
+        line.translateToString(
+          true
+        ),
+    });
+  }
+
+  return rows;
+}
+
 function extractOutput(
   xterm,
   outputMarker,
@@ -7664,6 +7717,13 @@ exports.decorateTerm =
             this.outputMarker
           );
 
+        const wrappedCommandRows =
+          extractWrappedCommandRows(
+            this.xterm,
+            this.startMarker,
+            this.outputMarker
+          );
+
         const copyOutput =
           extractOutput(
             this.xterm,
@@ -7729,6 +7789,15 @@ exports.decorateTerm =
 
           copyCommand,
 
+          wrappedCommandRows,
+
+          outputIndentColumns:
+            Number.isFinite(
+              this.outputIndentColumns
+            )
+              ? this.outputIndentColumns
+              : OUTPUT_INDENT_COLUMNS,
+
           copyOutput,
 
           exitCode,
@@ -7767,6 +7836,128 @@ exports.decorateTerm =
           savedLines:
             null,
         };
+
+        const wrappedCommandPresentation =
+          document
+            .createElement(
+              "div"
+            );
+
+        wrappedCommandPresentation
+          .setAttribute(
+            "aria-hidden",
+            "true"
+          );
+
+        Object.assign(
+          wrappedCommandPresentation.style,
+          {
+            position:
+              "absolute",
+
+            inset:
+              "0",
+
+            pointerEvents:
+              "none",
+
+            zIndex:
+              "11",
+          }
+        );
+
+        const terminalOptions =
+          this.xterm &&
+          this.xterm.options
+            ? this.xterm.options
+            : {};
+
+        const terminalTheme =
+          terminalOptions.theme ||
+          {};
+
+        card.wrappedCommandRowElements =
+          wrappedCommandRows.map(
+            (wrappedRow) => {
+              const rowElement =
+                document
+                  .createElement(
+                    "div"
+                  );
+
+              rowElement.textContent =
+                wrappedRow.text;
+
+              rowElement._hccRow =
+                wrappedRow.row;
+
+              Object.assign(
+                rowElement.style,
+                {
+                  position:
+                    "absolute",
+
+                  display:
+                    "none",
+
+                  overflow:
+                    "hidden",
+
+                  boxSizing:
+                    "border-box",
+
+                  whiteSpace:
+                    "pre",
+
+                  color:
+                    terminalTheme.foreground ||
+                    "var(--hcc-foreground, #E6E8EA)",
+
+                  background:
+                    terminalTheme.background ||
+                    "var(--hcc-background, #212121)",
+
+                  fontFamily:
+                    terminalOptions.fontFamily ||
+                    "monospace",
+
+                  fontSize:
+                    `${Number(
+                      terminalOptions.fontSize
+                    ) || 14}px`,
+
+                  fontWeight:
+                    terminalOptions.fontWeight ||
+                    "normal",
+
+                  letterSpacing:
+                    `${Number(
+                      terminalOptions.letterSpacing
+                    ) || 0}px`,
+
+                  fontVariantLigatures:
+                    "none",
+
+                  pointerEvents:
+                    "none",
+                }
+              );
+
+              wrappedCommandPresentation
+                .appendChild(
+                  rowElement
+                );
+
+              return rowElement;
+            }
+          );
+
+        card.wrappedCommandPresentation =
+          wrappedCommandPresentation;
+
+        element.appendChild(
+          wrappedCommandPresentation
+        );
 
         const collapseMask =
           document
@@ -9006,6 +9197,19 @@ exports.decorateTerm =
             .height /
           rows;
 
+        const cellWidth =
+          this.xterm.cols
+            ? screenRect.width /
+              this.xterm.cols
+            : 0;
+
+        const screenLeft =
+          screenRect.left -
+          wrapperRect.left;
+
+        const screenWidth =
+          screenRect.width;
+
         const screenTop =
           screenRect.top -
           wrapperRect.top;
@@ -9023,6 +9227,9 @@ exports.decorateTerm =
 
         return {
           cellHeight,
+          cellWidth,
+          screenLeft,
+          screenWidth,
           screenTop,
           viewportY,
         };
@@ -9389,6 +9596,16 @@ exports.decorateTerm =
           metrics
             .cellHeight;
 
+          this.cellWidth =
+            metrics.cellWidth;
+
+          this.screenLeft =
+            metrics.screenLeft;
+
+          this.screenWidth =
+            metrics.screenWidth;
+
+
         this.screenTop =
           metrics
             .screenTop;
@@ -9512,6 +9729,70 @@ exports.decorateTerm =
                   : "0 5px 16px rgba(0, 0, 0, 0.30), 0 1px 2px rgba(0, 0, 0, 0.22)",
             }
           );
+
+          if (
+            card.wrappedCommandRowElements
+          ) {
+            const outputIndent =
+              Math.max(
+                0,
+                card.outputIndentColumns || 0
+              );
+
+            const screenOffset =
+              Math.max(
+                0,
+                this.screenLeft -
+                  CARD_SIDE_GAP
+              );
+
+            for (
+              const rowElement
+              of card.wrappedCommandRowElements
+            ) {
+              const row =
+                Number.isFinite(
+                  rowElement._hccRow
+                )
+                  ? rowElement._hccRow
+                  : 0;
+
+              Object.assign(
+                rowElement.style,
+                {
+                  display:
+                    "block",
+
+                  left:
+                    `${screenOffset}px`,
+
+                  width:
+                    `${Math.max(
+                      0,
+                      this.screenWidth
+                    )}px`,
+
+                  top:
+                    `${Math.max(
+                      0,
+                      row *
+                        this.cellHeight -
+                        VERTICAL_INSET
+                    )}px`,
+
+                  height:
+                    `${this.cellHeight}px`,
+
+                  paddingLeft:
+                    `${outputIndent *
+                      this.cellWidth}px`,
+
+                  lineHeight:
+                    `${this.cellHeight}px`,
+                }
+              );
+            }
+          }
 
           if (
             card.collapseMask &&
