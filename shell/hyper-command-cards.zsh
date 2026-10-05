@@ -14,8 +14,49 @@ typeset -gi HCC_GROUP_TOTAL=0
 
 PROMPT_EOL_MARK=''
 
+typeset -gi HCC_OUTPUT_MARKED=0
+
 autoload -Uz add-zsh-hook
 autoload -Uz add-zle-hook-widget
+
+# Starship uses a two-line prompt in the Hyper Cards preset. Keeping
+# only the editable line in PROMPT avoids duplicate prompt rows when
+# the terminal is resized.
+typeset -g HCC_STARSHIP_PROMPT_SOURCE=""
+
+if [[ $PROMPT == *"starship prompt"* ]]; then
+  HCC_STARSHIP_PROMPT_SOURCE="$PROMPT"
+fi
+
+_hcc_split_starship_prompt() {
+  emulate -L zsh
+  setopt localoptions promptsubst
+
+  [[ -n ${HCC_STARSHIP_PROMPT_SOURCE:-} ]] ||
+    return
+
+  local hcc_rendered
+  local -a hcc_prompt_lines
+
+  hcc_rendered=$(
+    print -P -- "$HCC_STARSHIP_PROMPT_SOURCE"
+  )
+
+  hcc_prompt_lines=(
+    "${(@f)hcc_rendered}"
+  )
+
+  (( ${#hcc_prompt_lines[@]} )) ||
+    return
+
+  if (( ${#hcc_prompt_lines[@]} > 1 )); then
+    print -r -- \
+      "${(F)hcc_prompt_lines[1,-2]}"
+  fi
+
+  PROMPT="${hcc_prompt_lines[-1]}"
+}
+
 
 _hcc_prompt_columns() {
   emulate -L zsh
@@ -28,6 +69,43 @@ _hcc_prompt_columns() {
   hcc_prompt="${hcc_prompt//$'\e'\[[0-9;]##[[:alpha:]]/}"
 
   print -r -- ${#hcc_prompt}
+}
+
+
+_hcc_report_cursor() {
+  emulate -L zsh
+
+  local hcc_no_newlines="${BUFFER//$'\n'/}"
+  local hcc_left_no_newlines="${LBUFFER//$'\n'/}"
+  local hcc_cursor_tail="${LBUFFER##*$'\n'}"
+
+  local -i hcc_buffer_length=${#BUFFER}
+  local -i hcc_buffer_lines=$(( ${#BUFFER} - ${#hcc_no_newlines} + 1 ))
+  local -i hcc_cursor_line=$(( ${#LBUFFER} - ${#hcc_left_no_newlines} ))
+  local -i hcc_cursor_column=${#hcc_cursor_tail}
+
+  if ((
+    CURSOR == ${HCC_LAST_CURSOR:--1} &&
+    hcc_buffer_length == ${HCC_LAST_BUFFER_LENGTH:--1} &&
+    hcc_buffer_lines == ${HCC_LAST_BUFFER_LINES:--1} &&
+    hcc_cursor_line == ${HCC_LAST_CURSOR_LINE:--1} &&
+    hcc_cursor_column == ${HCC_LAST_CURSOR_COLUMN:--1}
+  )); then
+    return
+  fi
+
+  typeset -gi HCC_LAST_CURSOR=$CURSOR
+  typeset -gi HCC_LAST_BUFFER_LENGTH=$hcc_buffer_length
+  typeset -gi HCC_LAST_BUFFER_LINES=$hcc_buffer_lines
+  typeset -gi HCC_LAST_CURSOR_LINE=$hcc_cursor_line
+  typeset -gi HCC_LAST_CURSOR_COLUMN=$hcc_cursor_column
+
+  printf '\e]777;hcc;cursor;%d;%d;%d;%d;%d\a' \
+    "$CURSOR" \
+    "$hcc_buffer_length" \
+    "$hcc_buffer_lines" \
+    "$hcc_cursor_line" \
+    "$hcc_cursor_column"
 }
 
 _hcc_preexec() {
@@ -61,10 +139,28 @@ _hcc_preexec() {
     "$hcc_indent"
 
   printf '\e]777;hcc;output\a'
+  HCC_OUTPUT_MARKED=1
 }
 
 _hcc_precmd() {
   local hcc_status=$?
+
+  if (( HCC_CARD_OPEN && hcc_status == 1 && HCC_OUTPUT_MARKED == 0 )); then
+    local -i hcc_indent
+    hcc_indent=$(_hcc_prompt_columns)
+
+    (( hcc_indent < 0 )) &&
+      hcc_indent=0
+
+    (( hcc_indent > 999 )) &&
+      hcc_indent=999
+
+    printf '\e]777;hcc;indent;%03d\a' "$hcc_indent"
+    printf '\e]777;hcc;output\a'
+    hcc_status=130
+  fi
+
+  HCC_OUTPUT_MARKED=0
 
   if (( HCC_CARD_OPEN )); then
     printf '\r\n'
@@ -81,6 +177,8 @@ _hcc_precmd() {
 
 add-zsh-hook preexec _hcc_preexec
 add-zsh-hook precmd _hcc_precmd
+
+add-zsh-hook precmd _hcc_split_starship_prompt
 
 # Split a multiline paste only when every nonblank line is
 # a valid command on its own.
@@ -142,6 +240,13 @@ _hcc_accept_line() {
 _hcc_line_init() {
   emulate -L zsh
 
+  HCC_LAST_CURSOR=-1
+  HCC_LAST_BUFFER_LENGTH=-1
+  HCC_LAST_BUFFER_LINES=-1
+  HCC_LAST_CURSOR_LINE=-1
+  HCC_LAST_CURSOR_COLUMN=-1
+
+
   if (( ${#HCC_COMMAND_QUEUE[@]} == 0 )); then
     return
   fi
@@ -159,6 +264,7 @@ bindkey '^M' _hcc_accept_line
 bindkey '^J' _hcc_accept_line
 
 add-zle-hook-widget line-init _hcc_line_init
+add-zle-hook-widget line-pre-redraw _hcc_report_cursor
 
 # Use fzf's zsh history widget with the Hyper Cards picker options.
 _hcc_setup_history_picker() {

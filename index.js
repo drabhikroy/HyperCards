@@ -161,6 +161,203 @@ function indentOutput(
   return result;
 }
 
+function createOutputTransformState() {
+  return {
+    active: false,
+    needsIndent: false,
+    indentColumns:
+      OUTPUT_INDENT_COLUMNS,
+    indentPending: false,
+    pending: "",
+  };
+}
+
+function transformTerminalData(
+  input,
+  state
+) {
+  let data =
+    state.pending +
+    input;
+
+  state.pending = "";
+
+  const partial =
+    getPartialMarkerSuffix(
+      data
+    );
+
+  if (partial) {
+    state.pending =
+      partial;
+
+    data =
+      data.slice(
+        0,
+        -partial.length
+      );
+  }
+
+  let result = "";
+  let position = 0;
+
+  while (
+    position < data.length
+  ) {
+    const candidates = [
+      {
+        marker:
+          HCC_OUTPUT_MARKER,
+        type: "output",
+      },
+      {
+        marker:
+          HCC_DONE_MARKER,
+        type: "done",
+      },
+      {
+        marker:
+          HCC_PROMPT_MARKER,
+        type: "prompt",
+      },
+    ]
+      .map((item) => ({
+        ...item,
+        index:
+          data.indexOf(
+            item.marker,
+            position
+          ),
+      }))
+      .filter(
+        (item) =>
+          item.index !== -1
+      )
+      .sort(
+        (a, b) =>
+          a.index - b.index
+      );
+
+    const indentMatch =
+      data
+        .slice(
+          position
+        )
+        .match(
+          /\x1b]777;hcc;indent;(\d{3})\x07/
+        );
+
+    if (indentMatch) {
+      candidates.push({
+        marker:
+          indentMatch[0],
+        type:
+          "indent",
+        columns:
+          Number.parseInt(
+            indentMatch[1],
+            10
+          ),
+        index:
+          position +
+          indentMatch.index,
+      });
+
+      candidates.sort(
+        (a, b) =>
+          a.index - b.index
+      );
+    }
+
+    if (!candidates.length) {
+      const remaining =
+        data.slice(
+          position
+        );
+
+      result +=
+        state.active
+          ? indentOutput(
+              remaining,
+              state
+            )
+          : remaining;
+
+      break;
+    }
+
+    const nextMarker =
+      candidates[0];
+
+    const before =
+      data.slice(
+        position,
+        nextMarker.index
+      );
+
+    result +=
+      state.active
+        ? indentOutput(
+            before,
+            state
+          )
+        : before;
+
+    result +=
+      nextMarker.marker;
+
+    if (
+      nextMarker.type ===
+      "indent"
+    ) {
+      state.indentColumns =
+        Number.isFinite(
+          nextMarker.columns
+        )
+          ? Math.max(
+              0,
+              Math.min(
+                999,
+                nextMarker.columns
+              )
+            )
+          : OUTPUT_INDENT_COLUMNS;
+
+      state.indentPending =
+        true;
+    } else if (
+      nextMarker.type ===
+      "output"
+    ) {
+      state.indentPending =
+        false;
+      state.active = true;
+      state.needsIndent =
+        true;
+    } else {
+      state.indentPending =
+        false;
+      state.active = false;
+      state.needsIndent =
+        false;
+
+      if (
+        nextMarker.type ===
+        "prompt"
+      ) {
+        state.indentColumns =
+          OUTPUT_INDENT_COLUMNS;
+      }
+    }
+
+    position =
+      nextMarker.index +
+      nextMarker.marker.length;
+  }
+
+  return result;
+}
+
 function describeExitCode(
   exitCode
 ) {
@@ -198,238 +395,8 @@ function describeExitCode(
 }
 
 exports.middleware =
-  () => (next) => (action) => {
-    if (
-      action.type !==
-        "SESSION_PTY_DATA" ||
-      typeof action.data !==
-        "string"
-    ) {
-      return next(action);
-    }
-
-    const uid =
-      action.uid ||
-      "__default__";
-
-    const state =
-      outputStates.get(uid) || {
-        active: false,
-        needsIndent: false,
-        indentColumns:
-          OUTPUT_INDENT_COLUMNS,
-        pending: "",
-      };
-
-    let data =
-      state.pending +
-      action.data;
-
-    state.pending = "";
-
-    const partial =
-      getPartialMarkerSuffix(
-        data
-      );
-
-    if (partial) {
-      state.pending =
-        partial;
-
-      data =
-        data.slice(
-          0,
-          -partial.length
-        );
-    }
-
-    let result = "";
-    let position = 0;
-
-    while (
-      position <
-      data.length
-    ) {
-      const candidates = [
-        {
-          marker:
-            HCC_OUTPUT_MARKER,
-          type: "output",
-        },
-        {
-          marker:
-            HCC_DONE_MARKER,
-          type: "done",
-        },
-        {
-          marker:
-            HCC_PROMPT_MARKER,
-          type: "prompt",
-        },
-      ]
-        .map((item) => ({
-          ...item,
-
-          index:
-            data.indexOf(
-              item.marker,
-              position
-            ),
-        }))
-        .filter(
-          (item) =>
-            item.index !== -1
-        )
-        .sort(
-          (a, b) =>
-            a.index -
-            b.index
-        );
-
-      const indentMatch =
-        data
-          .slice(
-            position
-          )
-          .match(
-            /\x1b]777;hcc;indent;(\d{3})\x07/
-          );
-
-      if (indentMatch) {
-        candidates.push({
-          marker:
-            indentMatch[0],
-
-          type:
-            "indent",
-
-          columns:
-            Number.parseInt(
-              indentMatch[1],
-              10
-            ),
-
-          index:
-            position +
-            indentMatch.index,
-        });
-
-        candidates.sort(
-          (a, b) =>
-            a.index -
-            b.index
-        );
-      }
-
-      if (
-        !candidates.length
-      ) {
-        const remaining =
-          data.slice(
-            position
-          );
-
-        result +=
-          state.active
-            ? indentOutput(
-                remaining,
-                state
-              )
-            : remaining;
-
-        break;
-      }
-
-      const nextMarker =
-        candidates[0];
-
-      const before =
-        data.slice(
-          position,
-          nextMarker.index
-        );
-
-      result +=
-        state.active
-          ? indentOutput(
-              before,
-              state
-            )
-          : before;
-
-      result +=
-        nextMarker.marker;
-
-      if (
-        nextMarker.type ===
-        "indent"
-      ) {
-        state.indentColumns =
-          Number.isFinite(
-            nextMarker.columns
-          )
-            ? Math.max(
-                0,
-                Math.min(
-                  999,
-                  nextMarker.columns
-                )
-              )
-            : OUTPUT_INDENT_COLUMNS;
-      } else if (
-        nextMarker.type ===
-        "output"
-      ) {
-        state.active = true;
-        state.needsIndent =
-          true;
-      } else {
-        state.active = false;
-        state.needsIndent =
-          false;
-
-        if (
-          nextMarker.type ===
-          "prompt"
-        ) {
-          state.indentColumns =
-            OUTPUT_INDENT_COLUMNS;
-        }
-      }
-
-      position =
-        nextMarker.index +
-        nextMarker.marker
-          .length;
-    }
-
-    if (
-      !state.active &&
-      !state.needsIndent &&
-      !state.pending
-    ) {
-      outputStates.delete(
-        uid
-      );
-    } else {
-      outputStates.set(
-        uid,
-        state
-      );
-    }
-
-    if (
-      !result.length &&
-      state.pending
-    ) {
-      return;
-    }
-
-    return next({
-      ...action,
-      data: result,
-    });
-  };
+  () => (next) => (action) =>
+    next(action);
 
 function findXterm(root) {
   const seen =
@@ -734,9 +701,11 @@ function extractWrappedCommandRows(
     return [];
   }
 
-  const rows = [];
   const buffer =
     xterm.buffer.active;
+
+  let promptLine =
+    -1;
 
   for (
     let lineNumber =
@@ -750,10 +719,43 @@ function extractWrappedCommandRows(
         lineNumber
       );
 
+    if (!line) {
+      continue;
+    }
+
     if (
-      !line ||
-      !line.isWrapped
+      line
+        .translateToString(
+          true
+        )
+        .includes("❯")
     ) {
+      promptLine =
+        lineNumber;
+
+      break;
+    }
+  }
+
+  if (promptLine === -1) {
+    return [];
+  }
+
+  const rows = [];
+
+  for (
+    let lineNumber =
+      promptLine + 1;
+    lineNumber <
+      outputMarker.line;
+    lineNumber++
+  ) {
+    const line =
+      buffer.getLine(
+        lineNumber
+      );
+
+    if (!line) {
       continue;
     }
 
@@ -767,6 +769,15 @@ function extractWrappedCommandRows(
           true
         ),
     });
+  }
+
+  while (
+    rows.length &&
+    !rows[
+      rows.length - 1
+    ].text.trim()
+  ) {
+    rows.pop();
   }
 
   return rows;
@@ -1694,6 +1705,16 @@ function createCopyControl(
     (open) => {
       menuOpen = open;
 
+      if (
+        card &&
+        card.element
+      ) {
+        card.element.style.zIndex =
+          open
+            ? "100"
+            : "10";
+      }
+
       menu.style.display =
         open
           ? "block"
@@ -1911,6 +1932,16 @@ function createCopyControl(
                   .dataset
                   .open =
                     "false";
+
+                const otherCard =
+                  otherMenu.closest(
+                    ".hyper-command-card"
+                  );
+
+                if (otherCard) {
+                  otherCard.style.zIndex =
+                    "10";
+                }
 
                 if (
                   otherMenu
@@ -2699,6 +2730,34 @@ exports.decorateTerm =
         this.overlay =
           null;
 
+
+        this.liveWrapLayer =
+          null;
+
+        this.liveWrapRaf =
+          0;
+
+        this.liveCursorOffset =
+          null;
+
+        this.liveBufferLength =
+          null;
+
+        this.liveBufferLines =
+          null;
+
+        this.liveCursorLine =
+          null;
+
+        this.liveCursorColumn =
+          null;
+
+        this.outputTransformState =
+          createOutputTransformState();
+
+        this.originalXtermWrite =
+          null;
+
         this.cardLayer =
           null;
 
@@ -2869,6 +2928,22 @@ exports.decorateTerm =
       }
 
       componentWillUnmount() {
+        this
+          .clearLiveWrapPresentation();
+
+        if (
+          this.xterm &&
+          this.originalXtermWrite
+        ) {
+          try {
+            this.xterm.write =
+              this.originalXtermWrite;
+          } catch {}
+
+          this.originalXtermWrite =
+            null;
+        }
+
         if (this.wrapper) {
           this.wrapper.removeEventListener(
             "keydown",
@@ -5705,6 +5780,947 @@ exports.decorateTerm =
           .findTerminal();
       }
 
+      clearLiveWrapPresentation() {
+        if (this.liveWrapRaf) {
+          cancelAnimationFrame(
+            this.liveWrapRaf
+          );
+
+          this.liveWrapRaf =
+            0;
+        }
+
+        if (this.liveWrapLayer) {
+          this.liveWrapLayer.remove();
+
+          this.liveWrapLayer =
+            null;
+        }
+      }
+
+      scheduleLiveWrapPresentation() {
+        if (this.liveWrapRaf) {
+          cancelAnimationFrame(
+            this.liveWrapRaf
+          );
+        }
+
+        this.liveWrapRaf =
+          requestAnimationFrame(
+            () => {
+              this.liveWrapRaf =
+                0;
+
+              this
+                .updateLiveWrapPresentation();
+            }
+          );
+      }
+
+      updateLiveWrapPresentation() {
+        const xterm =
+          this.xterm;
+
+        if (
+          !xterm ||
+          this.outputMarker
+        ) {
+          if (this.liveWrapLayer) {
+            this.liveWrapLayer
+              .replaceChildren();
+          }
+
+          return;
+        }
+
+
+        const screen =
+          (
+            xterm.element &&
+            xterm.element.querySelector
+          )
+            ? xterm.element
+                .querySelector(
+                  ".xterm-screen"
+                )
+            : document
+                .querySelector(
+                  ".xterm-screen"
+                );
+
+        if (!screen) {
+          return;
+        }
+
+        const buffer =
+          xterm.buffer.active;
+
+        const cols =
+          xterm.cols;
+
+        const cursorLine =
+          buffer.baseY +
+          buffer.cursorY;
+
+        let promptLine =
+          cursorLine;
+
+        while (
+          promptLine >= 0
+        ) {
+          const line =
+            buffer.getLine(
+              promptLine
+            );
+
+          let hasPromptArrow =
+            false;
+
+          if (line) {
+            for (
+              let column = 0;
+              column <
+                Math.min(
+                  cols,
+                  64
+                );
+              column++
+            ) {
+              const cell =
+                line.getCell(
+                  column
+                );
+
+              if (
+                cell &&
+                cell.getChars() ===
+                  "❯"
+              ) {
+                hasPromptArrow =
+                  true;
+
+                break;
+              }
+            }
+          }
+
+          if (hasPromptArrow) {
+            break;
+          }
+
+          promptLine--;
+        }
+
+        if (promptLine < 0) {
+          return;
+        }
+
+        const promptBufferLine =
+          buffer.getLine(
+            promptLine
+          );
+
+        if (!promptBufferLine) {
+          return;
+        }
+
+        let arrowColumn =
+          -1;
+
+        for (
+          let column = 0;
+          column < cols;
+          column++
+        ) {
+          const cell =
+            promptBufferLine
+              .getCell(
+                column
+              );
+
+          if (
+            cell &&
+            cell.getChars() ===
+              "❯"
+          ) {
+            arrowColumn =
+              column;
+
+            break;
+          }
+        }
+
+        if (arrowColumn === -1) {
+          return;
+        }
+
+        let indent =
+          arrowColumn + 1;
+
+        const spacer =
+          promptBufferLine
+            .getCell(
+              indent
+            );
+
+        if (
+          spacer &&
+          (
+            spacer.getChars() ===
+              "" ||
+            /^\s+$/.test(
+              spacer.getChars()
+            )
+          )
+        ) {
+          indent++;
+        }
+
+        const commandWidth =
+          cols - indent;
+
+        if (commandWidth <= 0) {
+          return;
+        }
+
+        let logicalLinesToCursor =
+          1;
+
+        for (
+          let lineNumber =
+            promptLine + 1;
+          lineNumber <=
+            cursorLine;
+          lineNumber++
+        ) {
+          const line =
+            buffer.getLine(
+              lineNumber
+            );
+
+          if (
+            line &&
+            !line.isWrapped
+          ) {
+            logicalLinesToCursor++;
+          }
+        }
+
+        const liveMetadataCurrent =
+          Number.isFinite(
+            this.liveBufferLines
+          ) &&
+          this.liveBufferLines >=
+            logicalLinesToCursor;
+
+        let lastLine =
+          promptLine;
+
+        if (
+          liveMetadataCurrent
+        ) {
+          const expectedLogicalLines =
+            Math.max(
+              1,
+              this.liveBufferLines
+            );
+
+          let logicalLinesSeen =
+            1;
+
+          for (
+            let lineNumber =
+              promptLine + 1;
+            lineNumber <
+              buffer.length;
+            lineNumber++
+          ) {
+            const line =
+              buffer.getLine(
+                lineNumber
+              );
+
+            if (!line) {
+              break;
+            }
+
+            if (!line.isWrapped) {
+              if (
+                logicalLinesSeen >=
+                  expectedLogicalLines
+              ) {
+                break;
+              }
+
+              logicalLinesSeen++;
+            }
+
+            lastLine =
+              lineNumber;
+
+            if (
+              logicalLinesSeen ===
+                expectedLogicalLines
+            ) {
+              const next =
+                buffer.getLine(
+                  lineNumber + 1
+                );
+
+              if (
+                !next ||
+                !next.isWrapped
+              ) {
+                break;
+              }
+            }
+          }
+        } else {
+          lastLine =
+            Math.max(
+              promptLine,
+              cursorLine
+            );
+
+          while (true) {
+            const next =
+              buffer.getLine(
+                lastLine + 1
+              );
+
+            if (
+              !next ||
+              !next.isWrapped
+            ) {
+              break;
+            }
+
+            lastLine++;
+          }
+        }
+
+        if (
+          lastLine ===
+          promptLine
+        ) {
+          if (this.liveWrapLayer) {
+            this.liveWrapLayer
+              .replaceChildren();
+          }
+
+          return;
+        }
+
+        const commandCells =
+          [];
+
+        const appendCells =
+          (
+            line,
+            startColumn,
+            endColumn,
+            trimEnd
+          ) => {
+            const rowCells =
+              [];
+
+            for (
+              let column =
+                startColumn;
+              column <
+                endColumn;
+              column++
+            ) {
+              const cell =
+                line.getCell(
+                  column
+                );
+
+              if (!cell) {
+                continue;
+              }
+
+              const width =
+                cell.getWidth();
+
+              if (width === 0) {
+                continue;
+              }
+
+              rowCells.push({
+                chars:
+                  cell.getChars() ||
+                  " ",
+
+                width:
+                  Math.max(
+                    1,
+                    width
+                  ),
+              });
+            }
+
+            if (trimEnd) {
+              while (
+                rowCells.length &&
+                rowCells[
+                  rowCells.length -
+                  1
+                ].chars === " "
+              ) {
+                rowCells.pop();
+              }
+            }
+
+            commandCells.push(
+              ...rowCells
+            );
+          };
+
+        for (
+          let lineNumber =
+            promptLine;
+          lineNumber <=
+            lastLine;
+          lineNumber++
+        ) {
+          const line =
+            buffer.getLine(
+              lineNumber
+            );
+
+          if (!line) {
+            return;
+          }
+
+          if (
+            lineNumber >
+              promptLine &&
+            !line.isWrapped
+          ) {
+            commandCells.push({
+              hardBreak:
+                true,
+            });
+          }
+
+          const next =
+            lineNumber <
+              lastLine
+              ? buffer.getLine(
+                  lineNumber + 1
+                )
+              : null;
+
+          appendCells(
+            line,
+            lineNumber ===
+              promptLine
+              ? indent
+              : 0,
+            cols,
+            lineNumber ===
+              lastLine ||
+              !next ||
+              !next.isWrapped
+          );
+        }
+
+        const chunks =
+          [[]];
+
+        const logicalRowStarts =
+          [0];
+
+        let chunkWidth =
+          0;
+
+        for (
+          const cell
+          of commandCells
+        ) {
+          if (cell.hardBreak) {
+            chunks.push(
+              []
+            );
+
+            logicalRowStarts.push(
+              chunks.length - 1
+            );
+
+            chunkWidth =
+              0;
+
+            continue;
+          }
+
+          if (
+            chunkWidth +
+              cell.width >
+              commandWidth &&
+            chunks[
+              chunks.length - 1
+            ].length
+          ) {
+            chunks.push(
+              []
+            );
+
+            chunkWidth =
+              0;
+          }
+
+          chunks[
+            chunks.length - 1
+          ].push(
+            cell
+          );
+
+          chunkWidth +=
+            cell.width;
+        }
+
+        if (
+          chunks.length < 2
+        ) {
+          if (this.liveWrapLayer) {
+            this.liveWrapLayer
+              .replaceChildren();
+          }
+
+          return;
+        }
+
+        let cursorRow =
+          0;
+
+        let cursorColumn =
+          0;
+
+        if (
+          liveMetadataCurrent &&
+          Number.isFinite(
+            this.liveCursorLine
+          ) &&
+          Number.isFinite(
+            this.liveCursorColumn
+          ) &&
+          this.liveCursorLine <
+            logicalRowStarts.length
+        ) {
+          cursorRow =
+            logicalRowStarts[
+              this.liveCursorLine
+            ] +
+            Math.floor(
+              this.liveCursorColumn /
+                commandWidth
+            );
+
+          cursorColumn =
+            this.liveCursorColumn %
+              commandWidth;
+        } else if (
+          !liveMetadataCurrent &&
+          logicalLinesToCursor > 1
+        ) {
+          cursorRow =
+            chunks.length - 1;
+
+          cursorColumn =
+            (
+              chunks[
+                chunks.length - 1
+              ] || []
+            ).reduce(
+              (sum, cell) =>
+                sum + cell.width,
+              0
+            );
+        } else {
+          let cursorOffset;
+
+          if (
+            Number.isFinite(
+              this.liveCursorOffset
+            )
+          ) {
+            cursorOffset =
+              this.liveCursorOffset;
+          } else if (
+            cursorLine ===
+            promptLine
+          ) {
+            cursorOffset =
+              Math.max(
+                0,
+                buffer.cursorX -
+                  indent
+              );
+          } else {
+            cursorOffset =
+              commandWidth +
+              (
+                cursorLine -
+                promptLine -
+                1
+              ) *
+                cols +
+              buffer.cursorX;
+          }
+
+          if (
+            cursorOffset <
+            commandWidth
+          ) {
+            cursorColumn =
+              cursorOffset;
+          } else {
+            const remaining =
+              cursorOffset -
+              commandWidth;
+
+            cursorRow =
+              1 +
+              Math.floor(
+                remaining /
+                  commandWidth
+              );
+
+            cursorColumn =
+              remaining %
+                commandWidth;
+          }
+        }
+
+        const desiredCursor = {
+          row:
+            cursorRow,
+
+          column:
+            cursorColumn,
+        };
+
+        const desiredEnd = {
+          row:
+            chunks.length - 1,
+
+          column:
+            0,
+        };
+
+        const nativeEnd = {
+          row:
+            lastLine -
+              promptLine,
+
+          column:
+            0,
+        };
+        if (!this.liveWrapLayer) {
+          const layer =
+            document
+              .createElement(
+                "div"
+              );
+
+          Object.assign(
+            layer.style,
+            {
+              position:
+                "absolute",
+
+              inset:
+                "0",
+
+              overflow:
+                "hidden",
+
+              pointerEvents:
+                "none",
+
+              zIndex:
+                "20",
+            }
+          );
+
+          screen.appendChild(
+            layer
+          );
+
+          this.liveWrapLayer =
+            layer;
+        }
+
+        const layer =
+          this.liveWrapLayer;
+
+        if (
+          layer.parentElement !==
+          screen
+        ) {
+          layer.remove();
+
+          screen.appendChild(
+            layer
+          );
+        }
+
+        layer.replaceChildren();
+
+        const rect =
+          screen
+            .getBoundingClientRect();
+
+        const cellWidth =
+          rect.width /
+          cols;
+
+        const cellHeight =
+          rect.height /
+          xterm.rows;
+
+        const indentPixels =
+          indent *
+          cellWidth;
+
+        const options =
+          xterm.options ||
+          {};
+
+        const theme =
+          options.theme ||
+          {};
+
+        const foreground =
+          theme.foreground ||
+          "#E6E8EA";
+
+        const background =
+          theme.background ||
+          "#212121";
+
+        const rowsToPaint =
+          Math.max(
+            chunks.length - 1,
+            desiredEnd.row,
+            nativeEnd.row,
+            desiredCursor.row
+          );
+
+        for (
+          let row = 1;
+          row <=
+            rowsToPaint;
+          row++
+        ) {
+          const absoluteLine =
+            promptLine +
+            row;
+
+          const viewportRow =
+            absoluteLine -
+            buffer.viewportY;
+
+          if (
+            viewportRow < 0 ||
+            viewportRow >=
+              xterm.rows
+          ) {
+            continue;
+          }
+
+          const rowElement =
+            document
+              .createElement(
+                "div"
+              );
+
+          Object.assign(
+            rowElement.style,
+            {
+              position:
+                "absolute",
+
+              left:
+                "0",
+
+              top:
+                `${
+                  viewportRow *
+                  cellHeight
+                }px`,
+
+              width:
+                `${rect.width}px`,
+
+              height:
+                `${cellHeight}px`,
+
+              overflow:
+                "hidden",
+
+              background,
+
+              color:
+                foreground,
+
+              pointerEvents:
+                "none",
+
+              fontFamily:
+                options.fontFamily ||
+                "monospace",
+
+              fontSize:
+                `${
+                  Number(
+                    options.fontSize
+                  ) || 14
+                }px`,
+
+              fontWeight:
+                options.fontWeight ||
+                "normal",
+
+              lineHeight:
+                `${cellHeight}px`,
+
+              fontVariantLigatures:
+                "none",
+            }
+          );
+
+          const rowCells =
+            document
+              .createElement(
+                "div"
+              );
+
+          Object.assign(
+            rowCells.style,
+            {
+              position:
+                "absolute",
+
+              left:
+                `${indentPixels}px`,
+
+              top:
+                "0",
+
+              height:
+                `${cellHeight}px`,
+
+              display:
+                "flex",
+
+              whiteSpace:
+                "pre",
+            }
+          );
+
+          for (
+            const cell
+            of (
+              chunks[row] ||
+              []
+            )
+          ) {
+            const span =
+              document
+                .createElement(
+                  "span"
+                );
+
+            span.textContent =
+              cell.chars;
+
+            const width =
+              cell.width *
+              cellWidth;
+
+            Object.assign(
+              span.style,
+              {
+                display:
+                  "inline-block",
+
+                flex:
+                  `0 0 ${width}px`,
+
+                width:
+                  `${width}px`,
+
+                height:
+                  `${cellHeight}px`,
+
+                overflow:
+                  "visible",
+
+                whiteSpace:
+                  "pre",
+              }
+            );
+
+            rowCells.appendChild(
+              span
+            );
+          }
+
+          rowElement.appendChild(
+            rowCells
+          );
+
+          if (
+            row ===
+              desiredCursor.row
+          ) {
+            const cursor =
+              document
+                .createElement(
+                  "span"
+                );
+
+            Object.assign(
+              cursor.style,
+              {
+                position:
+                  "absolute",
+
+                left:
+                  `${
+                    indentPixels +
+                    desiredCursor
+                      .column *
+                      cellWidth
+                  }px`,
+
+                bottom:
+                  "1px",
+
+                width:
+                  `${cellWidth}px`,
+
+                height:
+                  "2px",
+
+                background:
+                  foreground,
+              }
+            );
+
+            rowElement.appendChild(
+              cursor
+            );
+          }
+
+          layer.appendChild(
+            rowElement
+          );
+        }
+      }
+
       setLiveRedraw(
         active
       ) {
@@ -5773,6 +6789,60 @@ exports.decorateTerm =
 
         this.xterm =
           xterm;
+
+        if (
+          typeof this.xterm.write ===
+          "function"
+        ) {
+          this.originalXtermWrite =
+            this.xterm.write;
+
+          this.outputTransformState =
+            createOutputTransformState();
+
+          this.xterm.write =
+            (data, callback) => {
+              if (
+                typeof data !==
+                "string"
+              ) {
+                return this
+                  .originalXtermWrite
+                  .call(
+                    this.xterm,
+                    data,
+                    callback
+                  );
+              }
+
+              const transformed =
+                transformTerminalData(
+                  data,
+                  this.outputTransformState
+                );
+
+              if (!transformed.length) {
+                if (
+                  typeof callback ===
+                  "function"
+                ) {
+                  queueMicrotask(
+                    callback
+                  );
+                }
+
+                return;
+              }
+
+              return this
+                .originalXtermWrite
+                .call(
+                  this.xterm,
+                  transformed,
+                  callback
+                );
+            };
+        }
 
         applyThemeVariables(
           this.wrapper,
@@ -5980,6 +7050,9 @@ exports.decorateTerm =
                 () => {
                   this
                     .scheduleGeometryUpdate();
+
+                  this
+                    .scheduleLiveWrapPresentation();
                 }
               );
         }
@@ -7380,6 +8453,54 @@ exports.decorateTerm =
         const message =
           String(data);
 
+
+        if (
+          message.startsWith(
+            "hcc;cursor;"
+          )
+        ) {
+          const parts =
+            message.split(";");
+
+          const parsePart =
+            (index) => {
+              const value =
+                Number.parseInt(
+                  parts[index],
+                  10
+                );
+
+              return Number.isFinite(
+                value
+              )
+                ? Math.max(
+                    0,
+                    value
+                  )
+                : null;
+            };
+
+          this.liveCursorOffset =
+            parsePart(2);
+
+          this.liveBufferLength =
+            parsePart(3);
+
+          this.liveBufferLines =
+            parsePart(4);
+
+          this.liveCursorLine =
+            parsePart(5);
+
+          this.liveCursorColumn =
+            parsePart(6);
+
+          this
+            .scheduleLiveWrapPresentation();
+
+          return true;
+        }
+
         if (
           message.startsWith(
             "hcc;indent;"
@@ -7461,6 +8582,25 @@ exports.decorateTerm =
           message ===
           "hcc;prompt"
         ) {
+          this.liveCursorOffset =
+            null;
+
+          this.liveBufferLength =
+            null;
+
+          this.liveBufferLines =
+            null;
+
+          this.liveCursorLine =
+            null;
+
+          this.liveCursorColumn =
+            null;
+
+
+          this
+            .clearLiveWrapPresentation();
+
           this
             .setLiveRedraw(
               false
@@ -7475,6 +8615,9 @@ exports.decorateTerm =
           message ===
           "hcc;output"
         ) {
+          this
+            .clearLiveWrapPresentation();
+
           this.markOutput();
 
           return true;
