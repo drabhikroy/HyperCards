@@ -110,67 +110,313 @@ function getPartialMarkerSuffix(data) {
   return longest;
 }
 
-function indentOutput(
-  data,
-  state
-) {
-  let result = "";
-
-  for (
-    let i = 0;
-    i < data.length;
-    i++
+  function indentOutput(
+    data,
+    state
   ) {
-    const char = data[i];
+    let result = "";
 
-    if (
-      state.needsIndent &&
-      char !== "\r" &&
-      char !== "\n"
-    ) {
-      const columns =
-        Math.max(
-          0,
-          Math.min(
-            999,
+    const indentColumns =
+      Math.max(
+        0,
+        Math.min(
+          999,
+          Number(
+            state.indentColumns
+          ) ||
+            OUTPUT_INDENT_COLUMNS
+        )
+      );
+
+    const terminalColumns =
+      Math.max(
+        0,
+        Number(
+          state.terminalColumns
+        ) || 0
+      );
+
+    const wrapColumn =
+      Math.max(
+        indentColumns + 1,
+        terminalColumns -
+          indentColumns
+      );
+
+    const writeIndent =
+      () => {
+        if (indentColumns > 0) {
+          result +=
+            `\x1b[${indentColumns}C`;
+        }
+
+        state.column =
+          indentColumns;
+
+        state.needsIndent =
+          false;
+      };
+
+    const finishCsi =
+      (sequence) => {
+        let match =
+          sequence.match(
+            /^\x1b\[(\d*)C$/
+          );
+
+        if (match) {
+          state.column +=
             Number(
-              state.indentColumns
-            ) ||
-              OUTPUT_INDENT_COLUMNS
-          )
-        );
+              match[1] || 1
+            );
 
-      if (columns > 0) {
-        result +=
-          `\x1b[${columns}C`;
+          return;
+        }
+
+        match =
+          sequence.match(
+            /^\x1b\[(\d*)D$/
+          );
+
+        if (match) {
+          state.column =
+            Math.max(
+              0,
+              state.column -
+                Number(
+                  match[1] || 1
+                )
+            );
+
+          return;
+        }
+
+        match =
+          sequence.match(
+            /^\x1b\[(\d*)G$/
+          );
+
+        if (match) {
+          state.column =
+            Math.max(
+              0,
+              Number(
+                match[1] || 1
+              ) - 1
+            );
+        }
+      };
+
+    for (const char of data) {
+      if (
+        state.needsIndent &&
+        char !== "\r" &&
+        char !== "\n"
+      ) {
+        writeIndent();
       }
 
-      state.needsIndent = false;
+      if (state.controlMode) {
+        result += char;
+
+        if (
+          state.controlMode ===
+          "esc"
+        ) {
+          if (char === "[") {
+            state.controlMode =
+              "csi";
+
+            state.controlBuffer =
+              "\x1b[";
+          } else if (
+            char === "]"
+          ) {
+            state.controlMode =
+              "osc";
+
+            state.controlEscape =
+              false;
+          } else if (
+            char === "P" ||
+            char === "_" ||
+            char === "^"
+          ) {
+            state.controlMode =
+              "string";
+
+            state.controlEscape =
+              false;
+          } else {
+            state.controlMode =
+              null;
+
+            state.controlBuffer =
+              "";
+          }
+
+          continue;
+        }
+
+        if (
+          state.controlMode ===
+          "csi"
+        ) {
+          state.controlBuffer +=
+            char;
+
+          if (
+            /[@-~]/.test(char)
+          ) {
+            finishCsi(
+              state.controlBuffer
+            );
+
+            state.controlMode =
+              null;
+
+            state.controlBuffer =
+              "";
+          }
+
+          continue;
+        }
+
+        if (
+          state.controlMode ===
+            "osc" &&
+          char === "\x07"
+        ) {
+          state.controlMode =
+            null;
+
+          state.controlEscape =
+            false;
+
+          continue;
+        }
+
+        if (
+          state.controlEscape
+        ) {
+          if (char === "\\") {
+            state.controlMode =
+              null;
+
+            state.controlEscape =
+              false;
+          } else {
+            state.controlEscape =
+              char === "\x1b";
+          }
+        } else if (
+          char === "\x1b"
+        ) {
+          state.controlEscape =
+            true;
+        }
+
+        continue;
+      }
+
+      if (char === "\x1b") {
+        result += char;
+
+        state.controlMode =
+          "esc";
+
+        state.controlBuffer =
+          "\x1b";
+
+        continue;
+      }
+
+      if (
+        char === "\r" ||
+        char === "\n"
+      ) {
+        result += char;
+
+        state.column =
+          0;
+
+        state.needsIndent =
+          true;
+
+        continue;
+      }
+
+      if (char === "\b") {
+        result += char;
+
+        state.column =
+          Math.max(
+            0,
+            state.column - 1
+          );
+
+        continue;
+      }
+
+      const width =
+        char === "\t"
+          ? 8 -
+            (
+              state.column %
+              8
+            )
+          : 1;
+
+      if (
+        terminalColumns >
+          indentColumns * 2 &&
+        state.column + width >
+          wrapColumn
+      ) {
+        result +=
+          "\r\n";
+
+        state.column =
+          0;
+
+        state.needsIndent =
+          true;
+
+        writeIndent();
+      }
+
+      result += char;
+
+      if (
+        char === "\t" ||
+        (
+          char >= " " &&
+          char !== "\x7f"
+        )
+      ) {
+        state.column +=
+          width;
+      }
     }
 
-    result += char;
-
-    if (
-      char === "\r" ||
-      char === "\n"
-    ) {
-      state.needsIndent = true;
-    }
+    return result;
   }
 
-  return result;
-}
-
-function createOutputTransformState() {
-  return {
-    active: false,
-    needsIndent: false,
-    indentColumns:
-      OUTPUT_INDENT_COLUMNS,
-    indentPending: false,
-    pending: "",
-  };
-}
+  function createOutputTransformState() {
+    return {
+      active: false,
+      needsIndent: false,
+      indentColumns:
+        OUTPUT_INDENT_COLUMNS,
+      indentPending: false,
+      terminalColumns: 0,
+      column: 0,
+      controlMode: null,
+      controlBuffer: "",
+      controlEscape: false,
+      pending: "",
+    };
+  }
 
 function transformTerminalData(
   input,
@@ -5821,10 +6067,7 @@ exports.decorateTerm =
         const xterm =
           this.xterm;
 
-        if (
-          !xterm ||
-          this.outputMarker
-        ) {
+        if (!xterm) {
           if (this.liveWrapLayer) {
             this.liveWrapLayer
               .replaceChildren();
@@ -5832,6 +6075,13 @@ exports.decorateTerm =
 
           return;
         }
+
+        const executing =
+          Boolean(
+            this.outputMarker &&
+            !this.outputMarker
+              .isDisposed
+          );
 
 
         const screen =
@@ -5863,7 +6113,12 @@ exports.decorateTerm =
           buffer.cursorY;
 
         let promptLine =
-          cursorLine;
+          executing
+            ? Math.max(
+                0,
+                this.outputMarker.line - 1
+              )
+            : cursorLine;
 
         while (
           promptLine >= 0
@@ -6016,7 +6271,13 @@ exports.decorateTerm =
         let lastLine =
           promptLine;
 
-        if (
+        if (executing) {
+          lastLine =
+            Math.max(
+              promptLine,
+              this.outputMarker.line - 1
+            );
+        } else if (
           liveMetadataCurrent
         ) {
           const expectedLogicalLines =
@@ -6393,13 +6654,19 @@ exports.decorateTerm =
           }
         }
 
-        const desiredCursor = {
-          row:
-            cursorRow,
+        const desiredCursor =
+          executing
+            ? {
+                row: -1,
+                column: 0,
+              }
+            : {
+                row:
+                  cursorRow,
 
-          column:
-            cursorColumn,
-        };
+                column:
+                  cursorColumn,
+              };
 
         const desiredEnd = {
           row:
@@ -6814,6 +7081,14 @@ exports.decorateTerm =
                     callback
                   );
               }
+
+                this.outputTransformState
+                  .terminalColumns =
+                    Number.isFinite(
+                      this.xterm.cols
+                    )
+                      ? this.xterm.cols
+                      : 0;
 
               const transformed =
                 transformTerminalData(
@@ -8615,10 +8890,10 @@ exports.decorateTerm =
           message ===
           "hcc;output"
         ) {
-          this
-            .clearLiveWrapPresentation();
-
           this.markOutput();
+
+          this
+            .scheduleLiveWrapPresentation();
 
           return true;
         }
@@ -9691,6 +9966,9 @@ exports.decorateTerm =
         this.cards.push(
           card
         );
+
+        this
+          .clearLiveWrapPresentation();
 
         this
           .updateCardsMenuVisibility();

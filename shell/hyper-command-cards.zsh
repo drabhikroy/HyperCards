@@ -278,7 +278,7 @@ _hcc_setup_history_picker() {
   local FZF_CTRL_T_COMMAND=""
   local FZF_ALT_C_COMMAND=""
 
-  local FZF_CTRL_R_OPTS="
+  typeset -g FZF_CTRL_R_OPTS="
     --height=45%
     --layout=reverse
     --border=rounded
@@ -288,7 +288,7 @@ _hcc_setup_history_picker() {
     --no-multi
     --cycle
     --info=inline-right
-    --bind='esc:abort'
+    --bind='up:up,down:down,ctrl-k:up,ctrl-j:down,esc:abort'
     --color='fg:#E6E8EA,bg:#212121,hl:#AFC4D8,fg+:#F2F3F4,bg+:#252A30,hl+:#AFC4D8,prompt:#A5B8D0,pointer:#95B8AE,marker:#8FBF88,border:#56616F,info:#AAB2BA'
   "
 
@@ -304,10 +304,31 @@ _hcc_setup_history_picker() {
 
   eval "$integration"
 
+  # Open Hyper Cards history without filtering by the current command line.
+  _hcc_history_widget() {
+    local hcc_buffer="$BUFFER"
+    local hcc_cursor=$CURSOR
+
+    BUFFER=""
+    CURSOR=0
+
+    zle fzf-history-widget
+    local hcc_status=$?
+
+    if (( hcc_status != 0 )); then
+      BUFFER="$hcc_buffer"
+      CURSOR=$hcc_cursor
+    fi
+
+    return $hcc_status
+  }
+
+  zle -N hcc-history-widget _hcc_history_widget
+
   # Hyper sends Ctrl-G to open the history picker.
-  bindkey -M emacs '^G' fzf-history-widget
-  bindkey -M viins '^G' fzf-history-widget
-  bindkey -M vicmd '^G' fzf-history-widget
+  bindkey -M emacs '^G' hcc-history-widget
+  bindkey -M viins '^G' hcc-history-widget
+  bindkey -M vicmd '^G' hcc-history-widget
 }
 
 _hcc_setup_history_picker
