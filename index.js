@@ -3349,6 +3349,18 @@ exports.decorateTerm =
         this.finishTimer =
           null;
 
+        this.userScrolledBack =
+          false;
+
+        this.followPromptToBottom =
+          false;
+
+        this.promptFollowFrame =
+          null;
+
+        this.viewportWheelElement =
+          null;
+
         this.commandGroups =
           new Map();
 
@@ -3386,6 +3398,7 @@ exports.decorateTerm =
           0;
 
         this.viewportY =
+
           0;
 
         this.setWrapper =
@@ -3418,6 +3431,10 @@ exports.decorateTerm =
 
         this.handleOsc =
           this.handleOsc
+            .bind(this);
+
+        this.handleViewportWheel =
+          this.handleViewportWheel
             .bind(this);
 
         this.setLiveRedraw =
@@ -3458,6 +3475,48 @@ exports.decorateTerm =
       componentWillUnmount() {
         this
           .clearLiveWrapPresentation();
+
+        if (this.viewportWheelElement) {
+          this.viewportWheelElement
+            .removeEventListener(
+              "wheel",
+              this.handleViewportWheel
+            );
+
+          this.viewportWheelElement =
+            null;
+        }
+
+        if (this.promptFollowFrame) {
+          cancelAnimationFrame(
+            this.promptFollowFrame
+          );
+
+          this.promptFollowFrame =
+            null;
+        }
+
+        for (
+          const timer
+          of [
+            this.finishTimer,
+            this.wrappedCommandResizeTimer,
+            this.wrappedCommandSettleTimer,
+          ]
+        ) {
+          if (timer) {
+            clearTimeout(timer);
+          }
+        }
+
+        this.finishTimer =
+          null;
+
+        this.wrappedCommandResizeTimer =
+          null;
+
+        this.wrappedCommandSettleTimer =
+          null;
 
         if (
           this.xterm &&
@@ -7722,6 +7781,27 @@ exports.decorateTerm =
         this.xterm =
           xterm;
 
+        try {
+          const viewportElement =
+            this.xterm.element &&
+            this.xterm.element
+              .querySelector(
+                ".xterm-viewport"
+              );
+
+          if (viewportElement) {
+            viewportElement
+              .addEventListener(
+                "wheel",
+                this.handleViewportWheel,
+                { passive: true }
+              );
+
+            this.viewportWheelElement =
+              viewportElement;
+          }
+        } catch {}
+
         if (
           typeof this.xterm.write ===
           "function"
@@ -7993,7 +8073,7 @@ exports.decorateTerm =
               (
                 viewportY
               ) => {
-                this
+                  this
                   .updateLayerTransform(
                     viewportY
                   );
@@ -9226,6 +9306,58 @@ copyCard: {
         this.scheduleGeometryUpdate();
       }
 
+      handleViewportWheel(
+        event
+      ) {
+        if (
+          !this.outputMarker &&
+          !this.followPromptToBottom
+        ) {
+          return;
+        }
+
+        const deltaY =
+          Number(event.deltaY) || 0;
+
+        if (deltaY < 0) {
+          this.userScrolledBack =
+            true;
+
+          return;
+        }
+
+        if (deltaY <= 0) {
+          return;
+        }
+
+        requestAnimationFrame(
+          () => {
+            const viewportElement =
+              this.viewportWheelElement;
+
+            if (!viewportElement) {
+              return;
+            }
+
+            const bottomGap =
+              viewportElement.scrollHeight -
+              viewportElement.clientHeight -
+              viewportElement.scrollTop;
+
+            if (
+              bottomGap <=
+                Math.max(
+                  2,
+                  this.cellHeight || 0
+                )
+            ) {
+              this.userScrolledBack =
+                false;
+            }
+          }
+        );
+      }
+
       handleOsc(
         data
       ) {
@@ -9386,6 +9518,56 @@ copyCard: {
             );
 
           this.startCard();
+
+          if (
+            this.followPromptToBottom &&
+            !this.userScrolledBack &&
+            this.xterm &&
+            typeof this.xterm
+              .scrollToBottom ===
+              "function"
+          ) {
+            if (this.promptFollowFrame) {
+              cancelAnimationFrame(
+                this.promptFollowFrame
+              );
+            }
+
+            this.promptFollowFrame =
+              requestAnimationFrame(
+                () => {
+                  this.promptFollowFrame =
+                    requestAnimationFrame(
+                      () => {
+                        this.promptFollowFrame =
+                          null;
+
+                        const shouldFollow =
+                          this.followPromptToBottom &&
+                          !this.userScrolledBack;
+
+                        this.followPromptToBottom =
+                          false;
+
+                        if (!shouldFollow) {
+                          return;
+                        }
+
+                        try {
+                          this.xterm
+                            .scrollToBottom();
+                        } catch {}
+
+                        this
+                          .scheduleGeometryUpdate();
+                      }
+                    );
+                }
+              );
+          } else {
+            this.followPromptToBottom =
+              false;
+          }
 
           return true;
         }
@@ -9549,6 +9731,20 @@ copyCard: {
       }
 
       markOutput() {
+        this.userScrolledBack =
+          false;
+
+        this.followPromptToBottom =
+          false;
+
+        if (this.promptFollowFrame) {
+          cancelAnimationFrame(
+            this.promptFollowFrame
+          );
+
+          this.promptFollowFrame =
+            null;
+        }
 
         if (
           Array.isArray(
@@ -9844,6 +10040,9 @@ copyCard: {
 
         this.outputWrapMarkers =
           [];
+
+        this.followPromptToBottom =
+          !this.userScrolledBack;
 
         this
           .normalizeOutputSoftWraps(
@@ -11022,7 +11221,7 @@ copyCard: {
             );
         } catch {}
 
-        this
+         this
           .scheduleGeometryUpdate();
       }
 
