@@ -20,6 +20,7 @@ const HCC_INDENT_PREFIX =
 
 const HCC_OUTPUT_MARKER = "\x1b]777;hcc;output\x07";
 const HCC_DONE_MARKER = "\x1b]777;hcc;done\x07";
+const HCC_SOFT_WRAP_MARKER = "\x1b]777;hcc;softwrap\x07";
 const HCC_PROMPT_MARKER = "\x1b]777;hcc;prompt\x07";
 
 const HCC_MARKERS = [
@@ -374,7 +375,10 @@ function getPartialMarkerSuffix(data) {
           wrapColumn
       ) {
         result +=
-          "\r\n";
+            "\r\n";
+
+          result +=
+            HCC_SOFT_WRAP_MARKER;
 
         state.column =
           0;
@@ -1028,6 +1032,93 @@ function extractWrappedCommandRows(
 
   return rows;
 }
+
+function getCommandIndentColumns(
+  xterm,
+  startMarker,
+  outputMarker
+) {
+  if (
+    !xterm ||
+    !startMarker ||
+    startMarker.isDisposed
+  ) {
+    return 0;
+  }
+
+  const buffer =
+    xterm.buffer.active;
+
+  const endLine =
+    (
+      outputMarker &&
+      !outputMarker.isDisposed
+    )
+      ? outputMarker.line
+      : buffer.length;
+
+  for (
+    let lineNumber =
+      startMarker.line;
+    lineNumber <
+      endLine;
+    lineNumber++
+  ) {
+    const line =
+      buffer.getLine(
+        lineNumber
+      );
+
+    if (!line) {
+      continue;
+    }
+
+    for (
+      let column = 0;
+      column < xterm.cols;
+      column++
+    ) {
+      const cell =
+        line.getCell(
+          column
+        );
+
+      if (
+        !cell ||
+        cell.getChars() !==
+          "❯"
+      ) {
+        continue;
+      }
+
+      let indent =
+        column + 1;
+
+      const spacer =
+        line.getCell(
+          indent
+        );
+
+      if (
+        spacer &&
+        (
+          spacer.getChars() ===
+            "" ||
+          /^\s+$/.test(
+            spacer.getChars()
+          )
+        )
+      ) {
+        indent++;
+      }
+
+      return indent;
+    }
+  }
+
+  return 0;
+}
+
 
 function extractOutput(
   xterm,
@@ -1726,6 +1817,44 @@ function applyButtonBase(
       }
     );
 }
+
+const HCC_CURRENT_CARD_HIGHLIGHT_KEY =
+  "hyper-cards.current-card-highlight";
+
+const HCC_COMMAND_GROUP_HIGHLIGHT_KEY =
+  "hyper-cards.command-group-highlight";
+
+
+function readHccBooleanPreference(
+  key
+) {
+  try {
+    return (
+      window.localStorage
+        .getItem(key) !==
+      "false"
+    );
+  } catch {
+    return true;
+  }
+}
+
+
+function writeHccBooleanPreference(
+  key,
+  value
+) {
+  try {
+    window.localStorage
+      .setItem(
+        key,
+        value
+          ? "true"
+          : "false"
+      );
+  } catch {}
+}
+
 
 function createCopyControl(
   card
@@ -2512,16 +2641,158 @@ function createCopyControl(
     copyButton.style.display =
       "none";
 
-    menuButton.textContent =
-      "Actions ▾";
+      const scopeLabel =
+        card.menuLabel ||
+        "This card";
 
-    menuButton.title =
-      "Card actions";
+      const scopeMenuLabel =
+        card.menuTitle ||
+        "Menu for this card";
 
-    menuButton.setAttribute(
-      "aria-label",
-      "Card actions"
-    );
+      menuButton.textContent =
+        `${scopeLabel} ▾`;
+
+      menuButton.title =
+        scopeMenuLabel;
+
+      menuButton.setAttribute(
+        "aria-label",
+        scopeMenuLabel
+      );
+
+      menu.setAttribute(
+        "aria-label",
+        scopeMenuLabel
+      );
+
+
+      if (
+        scopeLabel ===
+          "This card" &&
+        card.element
+      ) {
+        const accent =
+          document
+            .createElement(
+              "div"
+            );
+
+        accent.className =
+          "hcc-current-card-accent";
+
+        Object.assign(
+          accent.style,
+          {
+            position:
+              "absolute",
+
+            inset:
+              "0",
+
+            display:
+              "none",
+
+            border:
+              "1px solid var(--hcc-accent, #78c8b8)",
+
+            borderRadius:
+              "inherit",
+
+            boxSizing:
+              "border-box",
+
+            pointerEvents:
+              "none",
+
+            zIndex:
+              "18",
+          }
+        );
+
+        card.element
+          .appendChild(
+            accent
+          );
+
+        card.currentCardAccent =
+          accent;
+
+        card.currentCardHover =
+          false;
+
+        card.currentCardMenuOpen =
+          false;
+
+
+        const refreshCurrentCardEmphasis =
+          () => {
+            const enabled =
+              readHccBooleanPreference(
+                HCC_CURRENT_CARD_HIGHLIGHT_KEY
+              );
+
+            accent.style.display =
+              (
+                enabled &&
+                (
+                  card.currentCardHover ||
+                  card.currentCardMenuOpen
+                )
+              )
+                ? "block"
+                : "none";
+          };
+
+
+        menuButton.addEventListener(
+          "mouseenter",
+          () => {
+            card.currentCardHover =
+              true;
+
+            refreshCurrentCardEmphasis();
+          }
+        );
+
+
+        menuButton.addEventListener(
+          "mouseleave",
+          () => {
+            card.currentCardHover =
+              false;
+
+            refreshCurrentCardEmphasis();
+          }
+        );
+
+
+        new MutationObserver(
+          () => {
+            card.currentCardMenuOpen =
+              menuButton
+                .getAttribute(
+                  "aria-expanded"
+                ) ===
+              "true";
+
+            refreshCurrentCardEmphasis();
+          }
+        ).observe(
+          menuButton,
+          {
+            attributes:
+              true,
+
+            attributeFilter: [
+              "aria-expanded",
+            ],
+          }
+        );
+
+
+        card.refreshCurrentCardEmphasis =
+          refreshCurrentCardEmphasis;
+      }
 
     Object.assign(
       menuButton.style,
@@ -2592,10 +2863,16 @@ function createCopyControl(
 
     const updateCollapseItem =
       () => {
-        collapseItem.textContent =
-          card.collapsed
-            ? "Expand card"
-            : "Collapse card";
+          collapseItem.textContent =
+            card.collapsed
+              ? (
+                  card.expandLabel ||
+                  "Expand card"
+                )
+              : (
+                  card.collapseLabel ||
+                  "Collapse card"
+                );
       };
 
     updateCollapseItem();
@@ -2655,6 +2932,11 @@ function createCopyControl(
     menu
   );
 
+    control.menuButton =
+      menuButton;
+
+    control.menu =
+      menu;
   return control;
 }
 
@@ -3644,6 +3926,15 @@ exports.decorateTerm =
           "Card actions"
         );
 
+
+        /*
+         * The Highlight submenu is allowed to extend beyond
+         * the main menu. Do not turn that overflow into
+         * scrollbars or clip the flyout.
+         */
+        const hccMainMenuOverflowFix =
+          true;
+
         Object.assign(
           panel.style,
           {
@@ -3677,6 +3968,15 @@ exports.decorateTerm =
             maxWidth:
               "min(220px, calc(100vw - 32px))",
 
+            maxHeight:
+              "calc(100vh - 58px)",
+
+            overflowY:
+              "auto",
+
+            overscrollBehavior:
+              "contain",
+
             boxSizing:
               "border-box",
 
@@ -3697,10 +3997,24 @@ exports.decorateTerm =
           }
         );
 
+        panel.style.maxHeight =
+          "none";
+
+        panel.style.overflow =
+          "visible";
+
+        panel.style.overflowX =
+          "visible";
+
+        panel.style.overflowY =
+          "visible";
+
+
         const addAction =
           (
             label,
-            action
+            action,
+            closeAfter = true
           ) => {
             const button =
               document
@@ -3857,8 +4171,10 @@ exports.decorateTerm =
                   event
                 );
 
-                this
-                  .closeCardsMenu();
+                if (closeAfter) {
+                  this
+                    .closeCardsMenu();
+                }
               }
             );
 
@@ -3927,6 +4243,481 @@ exports.decorateTerm =
             }
           );
 
+        const highlightAction =
+          addAction(
+            "Highlight",
+            () => {
+              this
+                .showCardsHighlightMenu();
+            },
+            false
+          );
+
+
+        if (
+          highlightAction.hccMenuIcon
+        ) {
+          highlightAction
+            .hccMenuIcon
+            .textContent =
+              "◐";
+        }
+
+
+        highlightAction
+          .setAttribute(
+            "aria-haspopup",
+            "menu"
+          );
+
+        highlightAction
+          .setAttribute(
+            "aria-expanded",
+            "false"
+          );
+
+
+        const highlightArrow =
+          document
+            .createElement(
+              "span"
+            );
+
+        highlightArrow.textContent =
+          "›";
+
+        highlightArrow
+          .setAttribute(
+            "aria-hidden",
+            "true"
+          );
+
+        Object.assign(
+          highlightArrow.style,
+          {
+            marginLeft:
+              "auto",
+
+            paddingLeft:
+              "8px",
+
+            color:
+              "var(--hcc-muted, #AAB2BA)",
+          }
+        );
+
+        highlightAction
+          .appendChild(
+            highlightArrow
+          );
+
+
+        const highlightRow =
+          document
+            .createElement(
+              "div"
+            );
+
+        Object.assign(
+          highlightRow.style,
+          {
+            position:
+              "relative",
+
+            width:
+              "100%",
+          }
+        );
+
+
+        const highlightPanel =
+          document
+            .createElement(
+              "div"
+            );
+
+        highlightPanel
+          .setAttribute(
+            "role",
+            "menu"
+          );
+
+        highlightPanel
+          .setAttribute(
+            "aria-label",
+            "Highlight options"
+          );
+
+        Object.assign(
+          highlightPanel.style,
+          {
+            position:
+              "absolute",
+
+            top:
+              "0",
+
+            left:
+              "calc(100% + 6px)",
+
+            right:
+              "auto",
+
+            bottom:
+              "auto",
+
+            display:
+              "none",
+
+            flexDirection:
+              "column",
+
+            gap:
+              "2px",
+
+            width:
+              "max-content",
+
+            minWidth:
+              "230px",
+
+            maxWidth:
+              "min(280px, calc(100vw - 16px))",
+
+            boxSizing:
+              "border-box",
+
+            padding:
+              "5px",
+
+            background:
+              "var(--hcc-panel-surface, rgba(33, 33, 33, 0.98))",
+
+            border:
+              "1px solid var(--hcc-border, #3D4850)",
+
+            borderRadius:
+              "9px",
+
+            boxShadow:
+              "0 6px 20px rgba(0, 0, 0, 0.34)",
+
+            zIndex:
+              "46",
+
+            pointerEvents:
+              "auto",
+          }
+        );
+
+
+        /*
+         * addAction() already placed Highlight in the panel.
+         * Replace that position with a row that owns both the
+         * trigger and its flyout.
+         */
+        panel.insertBefore(
+          highlightRow,
+          highlightAction
+        );
+
+        highlightRow
+          .appendChild(
+            highlightAction
+          );
+
+        highlightRow
+          .appendChild(
+            highlightPanel
+          );
+
+
+        this.cardsMenuHighlightPanel =
+          highlightPanel;
+
+        this.cardsMenuHighlightTrigger =
+          highlightAction;
+
+
+        this.showCardsHighlightMenu =
+          () => {
+            highlightPanel.style.display =
+              "flex";
+
+            highlightAction
+              .setAttribute(
+                "aria-expanded",
+                "true"
+              );
+
+            /*
+             * Start on the right.
+             */
+            highlightPanel.style.left =
+              "calc(100% + 6px)";
+
+            highlightPanel.style.right =
+              "auto";
+
+            highlightPanel.style.top =
+              "0";
+
+            highlightPanel.style.bottom =
+              "auto";
+
+
+            let rect =
+              highlightPanel
+                .getBoundingClientRect();
+
+
+            /*
+             * Not enough horizontal room: open left.
+             */
+            if (
+              rect.right >
+                window.innerWidth - 8
+            ) {
+              highlightPanel.style.left =
+                "auto";
+
+              highlightPanel.style.right =
+                "calc(100% + 6px)";
+
+              rect =
+                highlightPanel
+                  .getBoundingClientRect();
+            }
+
+
+            /*
+             * Not enough room below the Highlight row:
+             * anchor the flyout's bottom to the row instead.
+             */
+            if (
+              rect.bottom >
+                window.innerHeight - 8
+            ) {
+              highlightPanel.style.top =
+                "auto";
+
+              highlightPanel.style.bottom =
+                "0";
+            }
+          };
+
+
+        this.hideCardsHighlightMenu =
+          () => {
+            highlightPanel.style.display =
+              "none";
+
+            highlightAction
+              .setAttribute(
+                "aria-expanded",
+                "false"
+              );
+          };
+
+
+        highlightRow
+          .addEventListener(
+            "mouseenter",
+            () => {
+              this
+                .showCardsHighlightMenu();
+            }
+          );
+
+
+        highlightRow
+          .addEventListener(
+            "mouseleave",
+            () => {
+              this
+                .hideCardsHighlightMenu();
+            }
+          );
+
+
+        highlightRow
+          .addEventListener(
+            "focusout",
+            () => {
+              requestAnimationFrame(
+                () => {
+                  if (
+                    !highlightRow
+                      .contains(
+                        document
+                          .activeElement
+                      )
+                  ) {
+                    this
+                      .hideCardsHighlightMenu();
+                  }
+                }
+              );
+            }
+          );
+
+
+        highlightAction
+          .addEventListener(
+            "keydown",
+            (event) => {
+              if (
+                event.key ===
+                "ArrowRight"
+              ) {
+                event.preventDefault();
+
+                this
+                  .showCardsHighlightMenu();
+
+                const first =
+                  highlightPanel
+                    .querySelector(
+                      "button"
+                    );
+
+                if (first) {
+                  first.focus();
+                }
+              }
+            }
+          );
+
+
+        highlightPanel
+          .addEventListener(
+            "keydown",
+            (event) => {
+              if (
+                event.key ===
+                  "ArrowLeft" ||
+                event.key ===
+                  "Escape"
+              ) {
+                event.preventDefault();
+                event.stopPropagation();
+
+                this
+                  .hideCardsHighlightMenu();
+
+                highlightAction.focus();
+              }
+            }
+          );
+
+
+        const currentCardHighlightAction =
+          addAction(
+            "Highlight current card",
+            () => {
+              const enabled =
+                !readHccBooleanPreference(
+                  HCC_CURRENT_CARD_HIGHLIGHT_KEY
+                );
+
+              writeHccBooleanPreference(
+                HCC_CURRENT_CARD_HIGHLIGHT_KEY,
+                enabled
+              );
+
+              for (
+                const card
+                of this.cards
+              ) {
+                if (
+                  card &&
+                  typeof card
+                    .refreshCurrentCardEmphasis ===
+                    "function"
+                ) {
+                  card
+                    .refreshCurrentCardEmphasis();
+                }
+              }
+
+              this
+                .updateCardsMenuActions();
+            }
+          );
+
+
+        currentCardHighlightAction
+          .setAttribute(
+            "role",
+            "menuitemcheckbox"
+          );
+
+
+        const commandGroupHighlightAction =
+          addAction(
+            "Highlight command groups",
+            () => {
+              const enabled =
+                !readHccBooleanPreference(
+                  HCC_COMMAND_GROUP_HIGHLIGHT_KEY
+                );
+
+              writeHccBooleanPreference(
+                HCC_COMMAND_GROUP_HIGHLIGHT_KEY,
+                enabled
+              );
+
+              for (
+                const group
+                of this.commandGroups
+                  .values()
+              ) {
+                if (
+                  group &&
+                  typeof group
+                    .refreshScopeEmphasis ===
+                    "function"
+                ) {
+                  group
+                    .refreshScopeEmphasis();
+                }
+              }
+
+              this
+                .updateCardsMenuActions();
+            }
+          );
+
+
+        commandGroupHighlightAction
+          .setAttribute(
+            "role",
+            "menuitemcheckbox"
+          );
+
+
+        /*
+         * addAction() initially appends these to the main
+         * menu. Move them into Highlight's flyout.
+         */
+        highlightPanel
+          .appendChild(
+            currentCardHighlightAction
+          );
+
+        highlightPanel
+          .appendChild(
+            commandGroupHighlightAction
+          );
+
+
+        this.cardsMenuCurrentCardHighlightAction =
+          currentCardHighlightAction;
+
+        this.cardsMenuCommandGroupHighlightAction =
+          commandGroupHighlightAction;
+
+
         this.cardsMenuSelectAction =
           selectCardsAction;
 
@@ -3951,6 +4742,17 @@ exports.decorateTerm =
               open
                 ? "none"
                 : "flex";
+
+            if (
+              open &&
+              typeof this
+                .hideCardsHighlightMenu ===
+                "function"
+            ) {
+              this
+                .hideCardsHighlightMenu();
+            }
+
 
             trigger
               .setAttribute(
@@ -4016,6 +4818,26 @@ exports.decorateTerm =
         }
 
         if (
+          this.cardsMenuHighlightPanel
+        ) {
+          this.cardsMenuHighlightPanel
+            .style
+            .display =
+              "none";
+        }
+
+        if (
+          this.cardsMenuHighlightTrigger
+        ) {
+          this.cardsMenuHighlightTrigger
+            .setAttribute(
+              "aria-expanded",
+              "false"
+            );
+        }
+
+
+        if (
           this.cardsMenuTrigger
         ) {
           this.cardsMenuTrigger
@@ -4027,6 +4849,67 @@ exports.decorateTerm =
       }
 
       updateCardsMenuActions() {
+        const currentHighlightEnabled =
+          readHccBooleanPreference(
+            HCC_CURRENT_CARD_HIGHLIGHT_KEY
+          );
+
+        const groupHighlightEnabled =
+          readHccBooleanPreference(
+            HCC_COMMAND_GROUP_HIGHLIGHT_KEY
+          );
+
+
+        if (
+          this
+            .cardsMenuCurrentCardHighlightAction
+        ) {
+          const action =
+            this
+              .cardsMenuCurrentCardHighlightAction;
+
+          action.setAttribute(
+            "aria-checked",
+            currentHighlightEnabled
+              ? "true"
+              : "false"
+          );
+
+          if (action.hccMenuIcon) {
+            action.hccMenuIcon
+              .textContent =
+                currentHighlightEnabled
+                  ? "✓"
+                  : "";
+          }
+        }
+
+
+        if (
+          this
+            .cardsMenuCommandGroupHighlightAction
+        ) {
+          const action =
+            this
+              .cardsMenuCommandGroupHighlightAction;
+
+          action.setAttribute(
+            "aria-checked",
+            groupHighlightEnabled
+              ? "true"
+              : "false"
+          );
+
+          if (action.hccMenuIcon) {
+            action.hccMenuIcon
+              .textContent =
+                groupHighlightEnabled
+                  ? "✓"
+                  : "";
+          }
+        }
+
+
         if (
           this.cardsMenuSelectAction
         ) {
@@ -4166,10 +5049,6 @@ exports.decorateTerm =
           of this.commandGroups
             .values()
         ) {
-          this
-            .updateCommandGroupCollapse(
-              group
-            );
         }
 
         this
@@ -4184,159 +5063,6 @@ exports.decorateTerm =
           this.xterm.focus();
         }
       }
-
-      ensureBatchPromptShade() {
-        if (
-          this.batchPromptShade &&
-          this.batchPromptShade
-            .isConnected
-        ) {
-          return this.batchPromptShade;
-        }
-
-        if (!this.overlay) {
-          return null;
-        }
-
-        const shade =
-          document
-            .createElement(
-              "div"
-            );
-
-        Object.assign(
-          shade.style,
-          {
-            position:
-              "absolute",
-
-            display:
-              "none",
-
-            background:
-              "var(--hcc-search-shade, rgba(33, 33, 33, 0.38))",
-
-            pointerEvents:
-              "none",
-
-            zIndex:
-              "20",
-          }
-        );
-
-        this.overlay
-          .appendChild(
-            shade
-          );
-
-        this.batchPromptShade =
-          shade;
-
-        return shade;
-      }
-
-      updateBatchPromptShade(
-      visible
-    ) {
-      const shade =
-        this
-          .ensureBatchPromptShade();
-
-      if (
-        !shade ||
-        !visible ||
-        !this.xterm ||
-        !this.wrapper
-      ) {
-        if (shade) {
-          shade.style.display =
-            "none";
-        }
-
-        return;
-      }
-
-      const screen =
-        this.xterm
-          .screenElement ||
-        (
-          this.xterm.element &&
-          this.xterm.element
-            .querySelector(
-              ".xterm-screen"
-            )
-        );
-
-      if (
-        !screen ||
-        !this.xterm.rows
-      ) {
-        shade.style.display =
-          "none";
-
-        return;
-      }
-
-      const wrapperRect =
-        this.wrapper
-          .getBoundingClientRect();
-
-      const screenRect =
-        screen
-          .getBoundingClientRect();
-
-      const cellHeight =
-        screenRect.height /
-        this.xterm.rows;
-
-      const cursorRow =
-        this.xterm
-          .buffer
-          .active
-          .cursorY || 0;
-
-      const promptStartRow =
-        Math.max(
-          0,
-          cursorRow - 1
-        );
-
-      const promptRows =
-        cursorRow > 0
-          ? 2
-          : 1;
-
-      Object.assign(
-        shade.style,
-        {
-          display:
-            "block",
-
-          left:
-            `${
-              screenRect.left -
-              wrapperRect.left
-            }px`,
-
-          top:
-            `${
-              screenRect.top -
-              wrapperRect.top +
-              promptStartRow *
-                cellHeight
-            }px`,
-
-          width:
-            `${screenRect.width}px`,
-
-          height:
-            `${
-              promptRows *
-              cellHeight
-            }px`,
-        }
-      );
-    }
 
     ensureSearchPromptShade() {
         if (
@@ -4893,30 +5619,6 @@ exports.decorateTerm =
           }
         }
 
-        for (
-          const group
-          of this.commandGroups
-            .values()
-        ) {
-          if (
-            group.header
-          ) {
-            group.header
-              .style
-              .opacity =
-                "1";
-          }
-
-          if (
-            group.rail
-          ) {
-            group.rail
-              .style
-              .opacity =
-                "1";
-          }
-        }
-
         this
           .updateSearchPromptShade(
             false
@@ -5083,43 +5785,6 @@ exports.decorateTerm =
                 dimmed
                   ? "0.38"
                   : "1";
-          }
-        }
-
-        for (
-          const group
-          of this.commandGroups
-            .values()
-        ) {
-          const groupMatches =
-            !normalized ||
-            group.cards.some(
-              (card) =>
-                card.searchMatch
-            );
-
-          const opacity =
-            normalized &&
-            !groupMatches
-              ? "0.38"
-              : "1";
-
-          if (
-            group.header
-          ) {
-            group.header
-              .style
-              .opacity =
-                opacity;
-          }
-
-          if (
-            group.rail
-          ) {
-            group.rail
-              .style
-              .opacity =
-                opacity;
           }
         }
 
@@ -7276,13 +7941,49 @@ exports.decorateTerm =
           this.xterm
             .onResize(
               () => {
-                setTimeout(
+                if (
+                  this.wrappedCommandResizeTimer
+                ) {
+                  clearTimeout(
+                    this.wrappedCommandResizeTimer
+                  );
+                }
+
+                if (
+                  this.wrappedCommandSettleTimer
+                ) {
+                  clearTimeout(
+                    this.wrappedCommandSettleTimer
+                  );
+                }
+
+                const refreshWrappedRows =
                   () => {
+                    for (
+                      const card
+                      of this.cards
+                    ) {
+                      this
+                        .syncWrappedCommandPresentation(
+                          card
+                        );
+                    }
+
                     this
                       .scheduleGeometryUpdate();
-                  },
-                  35
-                );
+                  };
+
+                this.wrappedCommandResizeTimer =
+                  setTimeout(
+                    refreshWrappedRows,
+                    35
+                  );
+
+                this.wrappedCommandSettleTimer =
+                  setTimeout(
+                    refreshWrappedRows,
+                    120
+                  );
               }
             );
 
@@ -7298,9 +7999,7 @@ exports.decorateTerm =
                   );
 
                 this
-                  .updateCommandGroups(
-                    viewportY
-                  );
+                  .updateCommandGroups();
 
                 this
                   .updateScrollbar(
@@ -7366,16 +8065,7 @@ exports.decorateTerm =
             cards:
               [],
 
-            header:
-              null,
-
-            rail:
-              null,
-
-            label:
-              null,
-
-            copyCard: {
+copyCard: {
               copyCommand:
                 "",
 
@@ -7393,10 +8083,6 @@ exports.decorateTerm =
               group
             );
 
-          this
-            .createCommandGroupUi(
-              group
-            );
         }
 
         if (
@@ -7414,608 +8100,760 @@ exports.decorateTerm =
           );
 
         this
+          .attachGroupScopeControl(
+            card,
+            group
+          );
+
+        this
           .scheduleGeometryUpdate();
       }
 
-      createCommandGroupUi(
+      attachGroupScopeControl(
+        card,
         group
       ) {
         if (
-          !this.cardLayer ||
-          group.header
+          !card ||
+          !group ||
+          !card.scopeDock
         ) {
           return;
         }
 
-        const rail =
-          document
-            .createElement(
-              "div"
-            );
+        /*
+         * Every grouped card gets a permanent slot immediately
+         * to the right of This card.
+         */
+        if (
+          !card.groupScopeSlot
+        ) {
+          const slot =
+            document
+              .createElement(
+                "div"
+              );
 
-        rail.className =
-          "hcc-command-group-rail";
+          slot.className =
+            "hcc-group-scope-slot";
 
-        Object.assign(
-          rail.style,
-          {
-            position:
-              "absolute",
+          Object.assign(
+            slot.style,
+            {
+              position:
+                "absolute",
 
-            width:
-              "2px",
+              left:
+                "calc(100% + 4px)",
 
-            background:
-              "rgba(149, 184, 174, 0.48)",
+              top:
+                "0",
 
-            borderRadius:
-              "999px",
+              display:
+                "flex",
 
-            pointerEvents:
-              "none",
+              alignItems:
+                "stretch",
 
-            zIndex:
-              "9",
-          }
-        );
+              height:
+                "100%",
 
-        const header =
-          document
-            .createElement(
-              "div"
-            );
+              overflow:
+                "visible",
 
-        header.className =
-          "hcc-command-group-header";
+              whiteSpace:
+                "nowrap",
 
-        header.setAttribute(
-          "role",
-          "group"
-        );
+              pointerEvents:
+                "auto",
 
-        Object.assign(
-          header.style,
-          {
-            position:
-              "absolute",
-
-            display:
-              "flex",
-
-            alignItems:
-              "center",
-
-            gap:
-              "5px",
-
-            padding:
-              "2px 4px",
-
-            background:
-              "var(--hcc-accent-soft, rgba(149, 184, 174, 0.14))",
-
-            border:
-              "1px solid var(--hcc-accent-border, rgba(149, 184, 174, 0.72))",
-
-            borderLeft:
-              "3px solid var(--hcc-accent, #95B8AE)",
-
-            borderRadius:
-              "5px",
-
-            boxShadow:
-              "0 2px 10px rgba(0, 0, 0, 0.28)",
-
-            pointerEvents:
-              "auto",
-
-            zIndex:
-              "35",
-          }
-        );
-
-        const label =
-          document
-            .createElement(
-              "span"
-            );
-
-        label.setAttribute(
-          "aria-live",
-          "polite"
-        );
-
-        label.setAttribute(
-          "aria-atomic",
-          "true"
-        );
-
-        Object.assign(
-          label.style,
-          {
-            color:
-              "var(--hcc-accent-text, #D6E6E1)",
-
-            fontWeight:
-              "600",
-
-            fontFamily:
-              "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif",
-
-            fontSize:
-              "var(--hcc-ui-font-size, 10.5px)",
-
-            lineHeight:
-              "var(--hcc-ui-line-height, 20px)",
-
-            whiteSpace:
-              "nowrap",
-          }
-        );
-
-        header.style.overflow =
-          "visible";
-
-        const copyControl =
-          createCopyControl(
-            group.copyCard
+              zIndex:
+                "35",
+            }
           );
 
-        const copyDisplay =
-          copyControl.style.display ||
-          "flex";
+          card.scopeDock
+            .appendChild(
+              slot
+            );
 
-        group.collapseCard = {
-          collapsed:
-            false,
+          card.groupScopeSlot =
+            slot;
+        }
 
-          setCollapsed:
-            (collapsed) => {
-              this
-                .setCommandGroupCollapsed(
-                  group,
-                  collapsed
-                );
+
+        /*
+         * One real All x cards control per group.
+         */
+        if (
+          !group.groupScopeControl
+        ) {
+          const groupActionCard = {
+            useActionsMenu:
+              true,
+
+            menuLabel:
+              `All ${group.total} cards`,
+
+            menuTitle:
+              `Menu for all ${group.total} cards`,
+
+            collapseLabel:
+              "Collapse all cards",
+
+            expandLabel:
+              "Expand all cards",
+
+            element:
+              card.element,
+
+            get copyCommand() {
+              return group
+                .copyCard
+                .copyCommand;
             },
-        };
 
-        const collapseControl =
-          createCollapseControl(
-            group.collapseCard
-          );
+            get copyOutput() {
+              return group
+                .copyCard
+                .copyOutput;
+            },
 
-        collapseControl
-          .button
-          .title =
-            "Collapse batch";
+            get copyCombined() {
+              return group
+                .copyCard
+                .copyCombined;
+            },
 
-        collapseControl
-          .button
-          .setAttribute(
-            "aria-label",
-            "Collapse batch"
-          );
+            get collapsed() {
+              const cards =
+                group.cards || [];
 
-        const collapseDisplay =
-          collapseControl.style.display ||
-          "flex";
+              return (
+                cards.length > 0 &&
+                cards.every(
+                  (item) =>
+                    Boolean(
+                      item &&
+                      item.collapsed
+                    )
+                )
+              );
+            },
 
-        const actionsDock =
-          document
-            .createElement(
-              "div"
+            setCollapsed:
+              (collapsed) => {
+                this
+                  .setCommandGroupCollapsed(
+                    group,
+                    collapsed
+                  );
+              },
+          };
+
+
+          const groupControl =
+            createCopyControl(
+              groupActionCard
             );
 
-        Object.assign(
-          actionsDock.style,
-          {
-            position:
-              "absolute",
 
-            left:
-              "calc(clamp(34px, calc(var(--hcc-ui-font-size, 10.5px) * 2.6), 50px) + 3px)",
+          Object.assign(
+            groupControl.style,
+            {
+              position:
+                "relative",
 
-            top:
-              "50%",
+              display:
+                "flex",
 
-            transform:
-              "translateY(-50%)",
+              visibility:
+                "visible",
 
-            display:
-              "none",
+              opacity:
+                "1",
 
-            alignItems:
-              "center",
+              background:
+                "var(--hcc-control-surface, rgba(33, 33, 33, 0.96))",
 
-            gap:
-              "4px",
+              border:
+                "1px solid var(--hcc-border, #3D4850)",
 
-            padding:
-              "2px 4px",
+              borderRadius:
+                "8px",
 
-            background:
-              "var(--hcc-panel-surface, rgba(33, 33, 33, 0.96))",
+              boxShadow:
+                "0 2px 8px rgba(0, 0, 0, 0.24)",
 
-            border:
-              "1px solid var(--hcc-border, #3D4850)",
+              overflow:
+                "visible",
 
-            borderRadius:
-              "6px",
+              pointerEvents:
+                "auto",
 
-            boxShadow:
-              "0 2px 8px rgba(0, 0, 0, 0.24)",
+              zIndex:
+                "55",
+            }
+          );
 
-            whiteSpace:
-              "nowrap",
 
-            zIndex:
-              "3",
+          if (
+            groupControl.menuButton
+          ) {
+            Object.assign(
+              groupControl
+                .menuButton
+                .style,
+              {
+                borderRadius:
+                  "7px",
+
+                background:
+                  "transparent",
+
+                color:
+                  "inherit",
+              }
+            );
           }
-        );
 
-        copyControl.style.display =
-          "none";
 
-        collapseControl.style.display =
-          "none";
+          if (
+            groupControl.menu
+          ) {
+            Object.assign(
+              groupControl
+                .menu
+                .style,
+              {
+                left:
+                  "auto",
 
-        const setGroupSpotlight =
-          (active) => {
-            if (
-              this.searchQuery
-            ) {
+                right:
+                  "0",
+
+                top:
+                  "calc(100% + 4px)",
+
+                zIndex:
+                  "80",
+
+                pointerEvents:
+                  "auto",
+              }
+            );
+          }
+
+
+          group.groupActionCard =
+            groupActionCard;
+
+          group.groupScopeControl =
+            groupControl;
+
+          group.groupScopeHostCard =
+            null;
+
+          group.groupScopeWidth =
+            0;
+
+          group.groupScopeHover =
+            false;
+
+          group.groupScopeMenuOpen =
+            false;
+
+
+          /*
+           * Group emphasis.
+           */
+          const setGroupEmphasis =
+            (active) => {
+              const members =
+                new Set(
+                  group.cards || []
+                );
+
+              for (
+                const item
+                of this.cards
+              ) {
+                if (
+                  !item ||
+                  !item.element ||
+                  !item.element
+                    .isConnected
+                ) {
+                  continue;
+                }
+
+
+                const belongs =
+                  members.has(
+                    item
+                  );
+
+
+                if (
+                  !item.groupScopeAccent
+                ) {
+                  const accent =
+                    document
+                      .createElement(
+                        "div"
+                      );
+
+                  Object.assign(
+                    accent.style,
+                    {
+                      position:
+                        "absolute",
+
+                      inset:
+                        "0",
+
+                      display:
+                        "none",
+
+                      border:
+                        "1px solid var(--hcc-accent-border, rgba(149, 184, 174, 0.82))",
+
+                      borderRadius:
+                        `${BORDER_RADIUS}px`,
+
+                      boxShadow:
+                        "inset 0 0 0 1px rgba(149, 184, 174, 0.10)",
+
+                      pointerEvents:
+                        "none",
+
+                      zIndex:
+                        "17",
+                    }
+                  );
+
+                  item.element
+                    .appendChild(
+                      accent
+                    );
+
+                  item.groupScopeAccent =
+                    accent;
+                }
+
+
+                if (
+                  !item.groupScopeShade
+                ) {
+                  const shade =
+                    document
+                      .createElement(
+                        "div"
+                      );
+
+                  Object.assign(
+                    shade.style,
+                    {
+                      position:
+                        "absolute",
+
+                      inset:
+                        "0",
+
+                      display:
+                        "none",
+
+                      background:
+                        "rgba(20, 20, 20, 0.30)",
+
+                      borderRadius:
+                        `${BORDER_RADIUS}px`,
+
+                      pointerEvents:
+                        "none",
+
+                      zIndex:
+                        "16",
+                    }
+                  );
+
+                  item.element
+                    .appendChild(
+                      shade
+                    );
+
+                  item.groupScopeShade =
+                    shade;
+                }
+
+
+                item.groupScopeAccent
+                  .style
+                  .display =
+                    active &&
+                    belongs
+                      ? "block"
+                      : "none";
+
+
+                item.groupScopeShade
+                  .style
+                  .display =
+                    active &&
+                    !belongs
+                      ? "block"
+                      : "none";
+              }
+            };
+
+
+          group.setScopeEmphasis =
+            setGroupEmphasis;
+
+
+          const refreshEmphasis =
+            () => {
+              setGroupEmphasis(
+                Boolean(
+                  readHccBooleanPreference(
+                    HCC_COMMAND_GROUP_HIGHLIGHT_KEY
+                  ) &&
+                  (
+                    group.groupScopeHover ||
+                    group.groupScopeMenuOpen
+                  )
+                )
+              );
+            };
+
+
+          group.refreshScopeEmphasis =
+            refreshEmphasis;
+
+
+          const resetButtonSurface =
+            () => {
+              if (
+                !groupControl
+                  .menuButton
+              ) {
+                return;
+              }
+
+              groupControl
+                .menuButton
+                .style
+                .background =
+                  "transparent";
+
+              groupControl
+                .menuButton
+                .style
+                .color =
+                  "inherit";
+            };
+
+
+          groupControl
+            .addEventListener(
+              "mouseenter",
+              () => {
+                group.groupScopeHover =
+                  true;
+
+                resetButtonSurface();
+
+                refreshEmphasis();
+              }
+            );
+
+
+          groupControl
+            .addEventListener(
+              "mouseleave",
+              () => {
+                group.groupScopeHover =
+                  false;
+
+                resetButtonSurface();
+
+                refreshEmphasis();
+              }
+            );
+
+
+          groupControl
+            .addEventListener(
+              "focusin",
+              () => {
+                resetButtonSurface();
+              }
+            );
+
+
+          /*
+           * Follow the menu's real open/closed state.
+           *
+           * Opening the menu keeps the group emphasis active.
+           * Closing it removes the emphasis unless the pointer
+           * is still over the control.
+           */
+          if (
+            groupControl.menuButton
+          ) {
+            const readMenuState =
+              () => {
+                group.groupScopeMenuOpen =
+                  groupControl
+                    .menuButton
+                    .getAttribute(
+                      "aria-expanded"
+                    ) ===
+                    "true";
+
+                resetButtonSurface();
+
+                refreshEmphasis();
+              };
+
+
+            const observer =
+              new MutationObserver(
+                readMenuState
+              );
+
+
+            observer.observe(
+              groupControl
+                .menuButton,
+              {
+                attributes:
+                  true,
+
+                attributeFilter: [
+                  "aria-expanded",
+                ],
+              }
+            );
+
+
+            group.groupScopeObserver =
+              observer;
+
+
+            groupControl
+              .menuButton
+              .addEventListener(
+                "click",
+                () => {
+                  requestAnimationFrame(
+                    readMenuState
+                  );
+                }
+              );
+
+
+            groupControl
+              .menuButton
+              .addEventListener(
+                "mouseenter",
+                () => {
+                  requestAnimationFrame(
+                    resetButtonSurface
+                  );
+                }
+              );
+
+
+            groupControl
+              .menuButton
+              .addEventListener(
+                "mouseleave",
+                () => {
+                  requestAnimationFrame(
+                    resetButtonSurface
+                  );
+                }
+              );
+          }
+        }
+
+
+        /*
+         * Always choose the earliest card in the group as the
+         * initial host.
+         *
+         * This corrects registration order differences that
+         * previously put All x cards on card 3.
+         */
+        const ordered =
+          (group.cards || [])
+            .filter(
+              (item) =>
+                item &&
+                item.groupScopeSlot
+            )
+            .sort(
+              (a, b) => {
+                const aIndex =
+                  Number(
+                    a.groupIndex
+                  ) || 0;
+
+                const bIndex =
+                  Number(
+                    b.groupIndex
+                  ) || 0;
+
+                if (
+                  aIndex !==
+                  bIndex
+                ) {
+                  return (
+                    aIndex -
+                    bIndex
+                  );
+                }
+
+                const aLine =
+                  (
+                    a.start &&
+                    Number(
+                      a.start.line
+                    )
+                  ) || 0;
+
+                const bLine =
+                  (
+                    b.start &&
+                    Number(
+                      b.start.line
+                    )
+                  ) || 0;
+
+                return (
+                  aLine -
+                  bLine
+                );
+              }
+            );
+
+
+        const first =
+          ordered[0] ||
+          null;
+
+
+        if (
+          first &&
+          (
+            !group.groupScopeHostCard ||
+            (
+              Number(
+                first.groupIndex
+              ) || 0
+            ) <
+            (
+              Number(
+                group
+                  .groupScopeHostCard
+                  .groupIndex
+              ) || 0
+            )
+          )
+        ) {
+          first.groupScopeSlot
+            .appendChild(
+              group
+                .groupScopeControl
+            );
+
+
+          group.groupScopeHostCard =
+            first;
+
+
+          if (
+            group.groupActionCard
+          ) {
+            group.groupActionCard
+              .element =
+                first.element;
+          }
+        }
+
+
+        /*
+         * Reserve identical room on every grouped card.
+         * This card therefore keeps the same horizontal
+         * position as All x cards moves.
+         */
+        const applyReservedWidth =
+          () => {
+            const control =
+              group.groupScopeControl;
+
+            if (!control) {
               return;
             }
 
-            this
-              .updateBatchPromptShade(
-                Boolean(
-                  active
-                )
-              );
 
-            const groupCards =
-              new Set(
-                group.cards
-              );
+            let width =
+              Number(
+                group.groupScopeWidth
+              ) || 0;
+
+
+            try {
+              const measured =
+                Math.ceil(
+                  control
+                    .getBoundingClientRect()
+                    .width
+                );
+
+
+              if (measured > 0) {
+                width =
+                  measured;
+
+                group.groupScopeWidth =
+                  measured;
+              }
+            } catch {}
+
+
+            if (width <= 0) {
+              return;
+            }
+
 
             for (
-              const card
-              of this.cards
+              const item
+              of group.cards || []
             ) {
               if (
-                !card ||
-                !card.element ||
-                !card.element
-                  .isConnected
+                !item ||
+                !item.scopeDock
               ) {
                 continue;
               }
 
-              const belongsToGroup =
-                groupCards.has(
-                  card
-                );
 
-              if (
-                !card.groupDimShade
-              ) {
-                const shade =
-                  document
-                    .createElement(
-                      "div"
-                    );
-
-                Object.assign(
-                  shade.style,
-                  {
-                    position:
-                      "absolute",
-
-                    inset:
-                      "0",
-
-                    display:
-                      "none",
-
-                    background:
-                      "var(--hcc-search-shade, rgba(33, 33, 33, 0.38))",
-
-                    borderRadius:
-                      `${BORDER_RADIUS}px`,
-
-                    pointerEvents:
-                      "none",
-
-                    zIndex:
-                      "18",
-                  }
-                );
-
-                card.element
-                  .appendChild(
-                    shade
-                  );
-
-                card.groupDimShade =
-                  shade;
-              }
-
-              const dimmed =
-                active &&
-                !belongsToGroup;
-
-              card.groupDimShade
+              item.scopeDock
                 .style
-                .display =
-                  dimmed
-                    ? "block"
-                    : "none";
-
-              if (
-                card.controls
-              ) {
-                card.controls
-                  .style
-                  .opacity =
-                    dimmed
-                      ? "0.38"
-                      : "1";
-              }
-
-              if (
-                card.groupHighlight
-              ) {
-                card.groupHighlight
-                  .style
-                  .opacity =
-                    "0";
-              }
-            }
-
-            for (
-              const currentGroup
-              of this.commandGroups
-                .values()
-            ) {
-              const selected =
-                currentGroup ===
-                  group;
-
-              const opacity =
-                active &&
-                !selected
-                  ? "0.30"
-                  : "1";
-
-              if (
-                currentGroup.header
-              ) {
-                currentGroup.header
-                  .style
-                  .opacity =
-                    opacity;
-              }
-
-              if (
-                currentGroup.rail
-              ) {
-                currentGroup.rail
-                  .style
-                  .opacity =
-                    opacity;
-              }
-
-              if (
-                currentGroup.topCap
-              ) {
-                currentGroup.topCap
-                  .style
-                  .opacity =
-                    opacity;
-              }
-
-              if (
-                currentGroup.bottomCap
-              ) {
-                currentGroup.bottomCap
-                  .style
-                  .opacity =
-                    opacity;
-              }
+                .marginRight =
+                  `${width + 4}px`;
             }
           };
 
-        const showGroupCopy =
-          () => {
-            copyControl.style.marginLeft =
-              "0";
 
-            collapseControl.style.marginLeft =
-              "0";
+        applyReservedWidth();
 
-            copyControl.style.display =
-              copyDisplay;
 
-            collapseControl.style.display =
-              collapseDisplay;
-
-            actionsDock.style.display =
-                "flex";
-
-              actionsDock.style.background =
-                "var(--hcc-background, #212121)";
-
-            setGroupSpotlight(
-                true
-              );
-
-              actionsDock.style.opacity =
-                "1";
-
-              copyControl.style.opacity =
-                "1";
-
-              collapseControl.style.opacity =
-                "1";
-          };
-
-        const hideGroupCopy =
-          () => {
-            requestAnimationFrame(
-              () => {
-                if (
-                  !header.matches(
-                    ":hover"
-                  ) &&
-                  !header.contains(
-                    document.activeElement
-                  )
-                ) {
-                  actionsDock.style.display =
-                    "none";
-
-                  setGroupSpotlight(
-                    false
-                  );
-                }
-              }
-            );
-          };
-
-        header.tabIndex =
-          0;
-
-        header.addEventListener(
-          "mouseenter",
-          showGroupCopy
+        requestAnimationFrame(
+          applyReservedWidth
         );
-
-        header.addEventListener(
-          "mouseleave",
-          hideGroupCopy
-        );
-
-        header.addEventListener(
-          "focusin",
-          showGroupCopy
-        );
-
-        header.addEventListener(
-          "focusout",
-          hideGroupCopy
-        );
-
-        const groupCopyMenu =
-          copyControl
-            .querySelector(
-              ".hcc-copy-menu"
-            );
-
-        if (groupCopyMenu) {
-          groupCopyMenu
-            .style
-            .left =
-              "0";
-
-          groupCopyMenu
-            .style
-            .right =
-              "auto";
-        }
-
-        header.appendChild(
-          label
-        );
-
-        actionsDock.appendChild(
-          copyControl
-        );
-
-        actionsDock.appendChild(
-          collapseControl
-        );
-
-        header.appendChild(
-          actionsDock
-        );
-
-        this.cardLayer
-          .appendChild(
-            rail
-          );
-
-        this.cardLayer
-          .appendChild(
-            header
-          );
-
-        group.rail =
-          rail;
-
-        rail.style.display =
-          "none";
-
-        this.cardLayer
-          .querySelectorAll(
-            ".hcc-command-group-top-cap, .hcc-command-group-bottom-cap"
-          )
-          .forEach(
-            (cap) => {
-              cap.style.display =
-                "none";
-            }
-          );
-
-        group.header =
-          header;
-
-        Object.assign(
-          header.style,
-          {
-            width:
-              "clamp(34px, calc(var(--hcc-ui-font-size, 10.5px) * 2.6), 50px)",
-
-            minWidth:
-              "clamp(34px, calc(var(--hcc-ui-font-size, 10.5px) * 2.6), 50px)",
-
-            minHeight:
-              "clamp(18px, calc(var(--hcc-ui-line-height, 16px) + 2px), 32px)",
-
-            boxSizing:
-              "border-box",
-
-            justifyContent:
-              "center",
-
-            padding:
-              "1px 4px",
-
-            background:
-              "var(--hcc-panel-surface, rgba(33, 33, 33, 0.96))",
-
-            border:
-              "1px solid var(--hcc-border, #3D4850)",
-
-            borderRight:
-              "1px solid var(--hcc-accent-border-soft, rgba(149, 184, 174, 0.58))",
-
-            borderRadius:
-              "6px 4px 4px 6px",
-
-            boxShadow:
-              "none",
-
-            transform:
-              "translateX(calc(-50% + 12px))",
-          }
-        );
-
-        group.label =
-          label;
-
-        group.collapseControl =
-          collapseControl;
       }
 
       setCommandGroupCollapsed(
@@ -8073,84 +8911,9 @@ exports.decorateTerm =
           }
         }
 
-        this
-          .updateCommandGroupCollapse(
-            group
-          );
 
         this
           .scheduleGeometryUpdate();
-      }
-
-      updateCommandGroupCollapse(
-        group
-      ) {
-        if (!group) {
-          return;
-        }
-
-        const cards =
-          group.cards
-            .filter(
-              (card) =>
-                card &&
-                card.element &&
-                card.element
-                  .isConnected
-            );
-
-        const allCollapsed =
-          cards.length > 0 &&
-          cards.every(
-            (card) =>
-              Boolean(
-                card.collapsed
-              )
-          );
-
-        group.collapsed =
-          allCollapsed;
-
-        if (
-          group.collapseCard
-        ) {
-          group.collapseCard
-            .collapsed =
-              allCollapsed;
-        }
-
-        const button =
-          group.collapseControl &&
-          group.collapseControl
-            .button;
-
-        if (!button) {
-          return;
-        }
-
-        button.textContent =
-          allCollapsed
-            ? "+"
-            : "−";
-
-        button.title =
-          allCollapsed
-            ? "Expand batch"
-            : "Collapse batch";
-
-        button
-          .setAttribute(
-            "aria-label",
-            button.title
-          );
-
-        button
-          .setAttribute(
-            "aria-expanded",
-            allCollapsed
-              ? "false"
-              : "true"
-          );
       }
 
       updateCommandGroupCopy(
@@ -8248,41 +9011,7 @@ exports.decorateTerm =
               );
       }
 
-      updateCommandGroups(
-        viewportY = null
-      ) {
-        if (
-          viewportY === null ||
-          viewportY === undefined
-        ) {
-          try {
-            viewportY =
-              this.xterm
-                .buffer
-                .active
-                .viewportY;
-          } catch {
-            viewportY =
-              this.viewportY;
-          }
-        }
-
-        const scrollOffset =
-          (
-            viewportY || 0
-          ) *
-          (
-            this.cellHeight || 0
-          );
-
-        const viewportTop =
-          this.screenTop || 0;
-
-        const viewportBottom =
-          this.wrapper
-            ? this.wrapper.clientHeight
-            : 0;
-
+      updateCommandGroups() {
         for (
           const [
             id,
@@ -8322,15 +9051,15 @@ exports.decorateTerm =
             cards;
 
           if (!cards.length) {
-            try {
-              group.header
-                ?.remove();
-            } catch {}
-
-            try {
-              group.rail
-                ?.remove();
-            } catch {}
+            if (
+              group.groupScopeControl
+            ) {
+              try {
+                group
+                  .groupScopeControl
+                  .remove();
+              } catch {}
+            }
 
             this.commandGroups
               .delete(id);
@@ -8342,231 +9071,6 @@ exports.decorateTerm =
             .updateCommandGroupCopy(
               group
             );
-
-          this
-            .updateCommandGroupCollapse(
-              group
-            );
-
-          if (
-            group.label
-          ) {
-            const complete =
-              cards.length ===
-                group.total;
-
-            const failed =
-              cards.some(
-                (card) =>
-                  Number.isInteger(
-                    card.exitCode
-                  ) &&
-                  card.exitCode !== 0
-              );
-
-            const passed =
-              complete &&
-              !failed &&
-              cards.every(
-                (card) =>
-                  Number.isInteger(
-                    card.exitCode
-                  ) &&
-                  card.exitCode === 0
-              );
-
-            group.label.innerHTML =
-              passed
-                ? `<svg aria-hidden="true" viewBox="0 0 12 12" width="10" height="10" style="display:block;flex:none"><path d="M2.2 6.2 4.8 8.7 9.8 3.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span>${group.total}</span>`
-                : "";
-
-            if (!passed) {
-              group.label.textContent =
-                failed
-                  ? `! ${group.total}`
-                  : `${group.total}`;
-            }
-
-            Object.assign(
-              group.label.style,
-              {
-                display:
-                  "inline-flex",
-
-                alignItems:
-                  "center",
-
-                justifyContent:
-                  "center",
-
-                gap:
-                  passed ? "3px" : "0",
-              }
-            );
-
-            group.label
-              .style
-              .color =
-                failed
-                  ? "var(--hcc-failure, #D8A2A2)"
-                  : passed
-                    ? "var(--hcc-success, #A9C9A3)"
-                    : "var(--hcc-accent-text, #D6E6E1)";
-
-            if (
-              group.header
-            ) {
-              const description =
-                failed
-                  ? `${group.total}-command batch, failed`
-                  : passed
-                    ? `${group.total}-command batch, completed successfully`
-                    : `${cards.length} of ${group.total} commands completed`;
-
-            group.header
-              .removeAttribute(
-                "title"
-              );
-
-              group.header
-                .setAttribute(
-                  "aria-label",
-                  `${description}. Focus or hover for batch controls.`
-                );
-            }
-          }
-
-          const first =
-            cards[0];
-
-          const last =
-            cards[
-              cards.length - 1
-            ];
-
-          const firstTop =
-            Number.parseFloat(
-              first.element
-                .style
-                .top
-            ) || 0;
-
-          const lastTop =
-            Number.parseFloat(
-              last.element
-                .style
-                .top
-            ) || 0;
-
-          const lastHeight =
-            Number.parseFloat(
-              last.element
-                .style
-                .height
-            ) || 0;
-
-          const lastBottom =
-            lastTop +
-            lastHeight;
-
-          const naturalHeaderTop =
-            Math.max(
-              0,
-              firstTop - 38
-            );
-
-          const headerHeight =
-            (
-              group.header &&
-              group.header.offsetHeight
-            ) || 24;
-
-          const visibleGroupTop =
-            naturalHeaderTop -
-            scrollOffset;
-
-          const visibleGroupBottom =
-            lastBottom -
-            scrollOffset;
-
-          const groupIsVisible =
-            visibleGroupBottom >
-              viewportTop &&
-            (
-              !viewportBottom ||
-              visibleGroupTop <
-                viewportBottom
-            );
-
-          if (
-            group.header
-          ) {
-            const stickyHeaderTop =
-              scrollOffset +
-              viewportTop +
-              6;
-
-            const latestHeaderTop =
-              Math.max(
-                naturalHeaderTop,
-                lastBottom -
-                  headerHeight -
-                  6
-              );
-
-            const headerTop =
-              Math.min(
-                Math.max(
-                  naturalHeaderTop,
-                  stickyHeaderTop
-                ),
-                latestHeaderTop
-              );
-
-            Object.assign(
-              group.header.style,
-              {
-                display:
-                  groupIsVisible
-                    ? "flex"
-                    : "none",
-
-                top:
-                  `${headerTop}px`,
-
-                left:
-                  `${Math.max(
-                    6,
-                    CARD_SIDE_GAP
-                  )}px`,
-              }
-            );
-          }
-
-          if (
-            group.rail
-          ) {
-            Object.assign(
-              group.rail.style,
-              {
-                top:
-                  `${firstTop}px`,
-
-                left:
-                  `${Math.max(
-                    2,
-                    CARD_SIDE_GAP - 5
-                  )}px`,
-
-                height:
-                  `${Math.max(
-                    8,
-                    lastBottom -
-                      firstTop
-                  )}px`,
-              }
-            );
-          }
         }
       }
 
@@ -8888,6 +9392,37 @@ exports.decorateTerm =
 
         if (
           message ===
+            "hcc;softwrap"
+        ) {
+          if (this.xterm) {
+            const marker =
+              this.xterm
+                .registerMarker(
+                  0
+                );
+
+            if (marker) {
+              if (
+                !Array.isArray(
+                  this.outputWrapMarkers
+                )
+              ) {
+                this.outputWrapMarkers =
+                  [];
+              }
+
+              this.outputWrapMarkers
+                .push(
+                  marker
+                );
+            }
+          }
+
+          return true;
+        }
+
+        if (
+          message ===
           "hcc;output"
         ) {
           this.markOutput();
@@ -9014,6 +9549,30 @@ exports.decorateTerm =
       }
 
       markOutput() {
+
+        if (
+          Array.isArray(
+            this.outputWrapMarkers
+          )
+        ) {
+          for (
+            const marker
+            of this.outputWrapMarkers
+          ) {
+            try {
+              if (
+                marker &&
+                !marker.isDisposed
+              ) {
+                marker.dispose();
+              }
+            } catch {}
+          }
+        }
+
+        this.outputWrapMarkers =
+          [];
+
         this.commandStartedAt =
           typeof performance !==
             "undefined"
@@ -9043,6 +9602,154 @@ exports.decorateTerm =
               0
             );
       }
+
+      normalizeOutputSoftWraps(
+        markers,
+        indentColumns
+      ) {
+        const mutable =
+          this
+            .getMutableBuffer();
+
+        if (
+          !mutable ||
+          !this.xterm ||
+          !Array.isArray(
+            markers
+          ) ||
+          !markers.length
+        ) {
+          return false;
+        }
+
+        const {
+          buffer,
+          lines,
+        } = mutable;
+
+        const cols =
+          Math.max(
+            0,
+            Number(
+              this.xterm.cols
+            ) || 0
+          );
+
+        const indentCount =
+          Math.max(
+            0,
+            Math.min(
+              cols,
+              Number(
+                indentColumns
+              ) ||
+                OUTPUT_INDENT_COLUMNS
+            )
+          );
+
+        if (
+          !cols ||
+          !indentCount
+        ) {
+          return false;
+        }
+
+        const blankLine =
+          buffer
+            .getBlankLine(
+              undefined,
+              false
+            );
+
+        let changed =
+          false;
+
+        for (
+          const marker
+          of markers
+        ) {
+          try {
+            if (
+              !marker ||
+              marker.isDisposed ||
+              !Number.isFinite(
+                marker.line
+              )
+            ) {
+              continue;
+            }
+
+            const line =
+              lines.get(
+                marker.line
+              );
+
+            if (
+              !line ||
+              typeof line
+                .copyCellsFrom !==
+                "function"
+            ) {
+              continue;
+            }
+
+            const contentLength =
+              Math.max(
+                0,
+                cols -
+                  indentCount
+              );
+
+            if (contentLength) {
+              line
+                .copyCellsFrom(
+                  line,
+                  indentCount,
+                  0,
+                  contentLength,
+                  false
+                );
+            }
+
+            line
+              .copyCellsFrom(
+                blankLine,
+                0,
+                contentLength,
+                indentCount,
+                false
+              );
+
+            line.isWrapped =
+              true;
+
+            changed =
+              true;
+          } catch {}
+        }
+
+        for (
+          const marker
+          of markers
+        ) {
+          try {
+            if (
+              marker &&
+              !marker.isDisposed
+            ) {
+              marker.dispose();
+            }
+          } catch {}
+        }
+
+        if (changed) {
+          this
+            .refreshAfterBufferMutation();
+        }
+
+        return changed;
+      }
+
 
       finishCard(
         exitCode = null
@@ -9128,6 +9835,22 @@ exports.decorateTerm =
           return;
         }
 
+        const outputWrapMarkers =
+          Array.isArray(
+            this.outputWrapMarkers
+          )
+            ? this.outputWrapMarkers
+            : [];
+
+        this.outputWrapMarkers =
+          [];
+
+        this
+          .normalizeOutputSoftWraps(
+            outputWrapMarkers,
+            this.outputIndentColumns
+          );
+
         const copyCommand =
           extractCommand(
             this.xterm,
@@ -9209,6 +9932,14 @@ exports.decorateTerm =
 
           wrappedCommandRows,
 
+
+          commandIndentColumns:
+            getCommandIndentColumns(
+              this.xterm,
+              this.startMarker,
+              this.outputMarker
+            ),
+
           outputIndentColumns:
             Number.isFinite(
               this.outputIndentColumns
@@ -9279,6 +10010,12 @@ exports.decorateTerm =
             pointerEvents:
               "none",
 
+            borderRadius:
+              "inherit",
+
+            overflow:
+              "hidden",
+
             zIndex:
               "11",
           }
@@ -9293,6 +10030,38 @@ exports.decorateTerm =
         const terminalTheme =
           terminalOptions.theme ||
           {};
+
+        /*
+         * Wrapped command rows need an opaque background to
+         * cover xterm's original wrapped text before the
+         * corrected text is drawn. Match that opaque color to
+         * the card's composited surface so those rows do not
+         * appear as darker horizontal strips.
+         */
+        const wrappedCommandBase =
+          hccParseColor(
+            terminalTheme.background,
+            "#212121"
+          );
+
+        const wrappedCommandForeground =
+          hccParseColor(
+            terminalTheme.foreground,
+            "#E6E8EA"
+          );
+
+        const wrappedCommandBackground =
+          hccRgb(
+            hccMixColor(
+              wrappedCommandBase,
+              wrappedCommandForeground,
+              hccLuminance(
+                wrappedCommandBase
+              ) > 0.45
+                ? 0.020
+                : 0.012
+            )
+          );
 
         card.wrappedCommandRowElements =
           wrappedCommandRows.map(
@@ -9332,8 +10101,7 @@ exports.decorateTerm =
                     "var(--hcc-foreground, #E6E8EA)",
 
                   background:
-                    terminalTheme.background ||
-                    "var(--hcc-background, #212121)",
+                    wrappedCommandBackground,
 
                   fontFamily:
                     terminalOptions.fontFamily ||
@@ -9376,6 +10144,11 @@ exports.decorateTerm =
         element.appendChild(
           wrappedCommandPresentation
         );
+
+        this
+          .syncWrappedCommandPresentation(
+            card
+          );
 
         const collapseMask =
           document
@@ -9688,6 +10461,93 @@ exports.decorateTerm =
         const copyControl =
           createCopyControl(card);
 
+        const scopeDock =
+          document
+            .createElement(
+              "div"
+            );
+
+        scopeDock.className =
+          "hcc-scope-dock";
+
+        scopeDock.setAttribute(
+          "role",
+          "group"
+        );
+
+        scopeDock.setAttribute(
+          "aria-label",
+          "Card scope"
+        );
+
+        Object.assign(
+          scopeDock.style,
+          {
+            position:
+              "relative",
+
+            display:
+              "flex",
+
+            alignItems:
+              "stretch",
+
+            gap:
+              "0",
+
+            padding:
+              "0",
+
+            background:
+              "var(--hcc-control-surface, rgba(33, 33, 33, 0.88))",
+
+            border:
+              "1px solid var(--hcc-border, #3D4850)",
+
+            borderRadius:
+              "8px",
+
+            boxShadow:
+              "0 2px 8px rgba(0, 0, 0, 0.24)",
+
+            overflow:
+              "visible",
+
+            whiteSpace:
+              "nowrap",
+
+            pointerEvents:
+              "auto",
+          }
+        );
+
+        Object.assign(
+          copyControl.style,
+          {
+            background:
+              "transparent",
+
+            border:
+              "0",
+
+            borderRadius:
+              "7px",
+
+            boxShadow:
+              "none",
+          }
+        );
+
+        if (
+          copyControl.menuButton
+        ) {
+          copyControl
+            .menuButton
+            .style
+            .borderRadius =
+              "7px";
+        }
+
         const collapseControl =
           createCollapseControl(card);
 
@@ -9702,6 +10562,25 @@ exports.decorateTerm =
 
         card.controls =
           controls;
+
+        card.scopeDock =
+          scopeDock;
+
+        const existingGroup =
+          card.groupId
+            ? this.commandGroups
+                .get(
+                  card.groupId
+                )
+            : null;
+
+        if (existingGroup) {
+          this
+            .attachGroupScopeControl(
+              card,
+              existingGroup
+            );
+        }
 
         const selectButton =
           document
@@ -9946,9 +10825,14 @@ exports.decorateTerm =
           statusLabel
         );
 
-        controls.appendChild(
-          copyControl
-        );
+          scopeDock.insertBefore(
+            copyControl,
+            scopeDock.firstChild
+          );
+
+          controls.appendChild(
+            scopeDock
+          );
 
         controls.appendChild(
           collapseControl
@@ -10547,8 +11431,514 @@ exports.decorateTerm =
         this
           .refreshAfterBufferMutation();
 
+        requestAnimationFrame(
+          () => {
+            this
+              .syncWrappedCommandPresentation(
+                card
+              );
+
+            this
+              .scheduleGeometryUpdate();
+          }
+        );
+
         return true;
       }
+
+      syncWrappedCommandPresentation(
+        card
+      ) {
+        if (
+          !this.xterm ||
+          !card ||
+          !card.start ||
+          card.start.isDisposed ||
+          !card.wrappedCommandPresentation
+        ) {
+          return;
+        }
+
+        const hasOutputMarker =
+          Boolean(
+            card.output &&
+            !card.output.isDisposed
+          );
+
+        card.commandIndentColumns =
+          getCommandIndentColumns(
+            this.xterm,
+            card.start,
+            card.output
+          );
+
+        const rows =
+          hasOutputMarker
+            ? extractWrappedCommandRows(
+                this.xterm,
+                card.start,
+                card.output
+              )
+            : (
+                Array.isArray(
+                  card.wrappedCommandRows
+                )
+                  ? card.wrappedCommandRows
+                  : []
+              );
+
+        const terminalOptions =
+          this.xterm.options || {};
+
+        const terminalTheme =
+          terminalOptions.theme || {};
+
+        const backgroundBase =
+          hccParseColor(
+            terminalTheme.background,
+            "#212121"
+          );
+
+        const foregroundBase =
+          hccParseColor(
+            terminalTheme.foreground,
+            "#E6E8EA"
+          );
+
+        /*
+         * Opaque version of the card surface. It masks xterm's
+         * original wrapped text without creating a darker strip.
+         */
+        const rowBackground =
+          hccRgb(
+            hccMixColor(
+              backgroundBase,
+              foregroundBase,
+              hccLuminance(
+                backgroundBase
+              ) > 0.45
+                ? 0.020
+                : 0.012
+            )
+          );
+
+        if (
+          !Array.isArray(
+            card.wrappedCommandRowElements
+          )
+        ) {
+          card.wrappedCommandRowElements =
+            [];
+        }
+
+        /*
+         * Remove rows that disappeared after widening.
+         */
+        while (
+          card.wrappedCommandRowElements
+            .length > rows.length
+        ) {
+          const rowElement =
+            card.wrappedCommandRowElements
+              .pop();
+
+          try {
+            rowElement.remove();
+          } catch {}
+        }
+
+        /*
+         * Add rows created by narrowing.
+         */
+        while (
+          card.wrappedCommandRowElements
+            .length < rows.length
+        ) {
+          const rowElement =
+            document
+              .createElement(
+                "div"
+              );
+
+          card.wrappedCommandPresentation
+            .appendChild(
+              rowElement
+            );
+
+          card.wrappedCommandRowElements
+            .push(
+              rowElement
+            );
+        }
+
+        /*
+         * Rebuild every row from xterm's current reflowed
+         * buffer rather than retaining the old physical rows.
+         */
+        rows.forEach(
+          (wrappedRow, index) => {
+            const rowElement =
+              card.wrappedCommandRowElements[
+                index
+              ];
+
+            rowElement.textContent =
+              wrappedRow.text;
+
+            rowElement._hccRow =
+              wrappedRow.row;
+
+            Object.assign(
+              rowElement.style,
+              {
+                position:
+                  "absolute",
+
+                display:
+                  "none",
+
+                overflow:
+                  "hidden",
+
+                boxSizing:
+                  "border-box",
+
+                whiteSpace:
+                  "pre",
+
+                color:
+                  terminalTheme.foreground ||
+                  "var(--hcc-foreground, #E6E8EA)",
+
+                background:
+                  rowBackground,
+
+                fontFamily:
+                  terminalOptions.fontFamily ||
+                  "monospace",
+
+                fontSize:
+                  `${Number(
+                    terminalOptions.fontSize
+                  ) || 14}px`,
+
+                fontWeight:
+                  terminalOptions.fontWeight ||
+                  "normal",
+
+                letterSpacing:
+                  `${Number(
+                    terminalOptions.letterSpacing
+                  ) || 0}px`,
+
+                fontVariantLigatures:
+                  "none",
+
+                pointerEvents:
+                  "none",
+              }
+            );
+          }
+        );
+
+        card.wrappedCommandRows =
+          rows;
+
+
+        /*
+         * Finished output needs the same treatment as wrapped
+         * commands. xterm may create new physical continuation
+         * rows during resize, and those rows no longer contain
+         * the cursor-movement indent originally written by
+         * Hyper Cards.
+         */
+        const outputIndent =
+          Math.max(
+            0,
+            card.outputIndentColumns ||
+              OUTPUT_INDENT_COLUMNS
+          );
+
+        const outputStartLine =
+          hasOutputMarker
+            ? card.output.line
+            : (
+                card.start.line +
+                Math.max(
+                  1,
+                  card.commandRows || 1
+                )
+              );
+
+        const outputEndLine =
+          (
+            card.end &&
+            !card.end.isDisposed
+          )
+            ? card.end.line
+            : outputStartLine;
+
+        const outputRows =
+          [];
+
+        /*
+         * Keep xterm's current physical wrap groups for vertical
+         * placement and card height. Paint their text from the
+         * clean logical output instead of the old buffer contents.
+         */
+        const physicalGroups =
+          [];
+
+        const buffer =
+          this.xterm.buffer.active;
+
+        for (
+          let lineNumber =
+            outputStartLine;
+          lineNumber <
+            outputEndLine;
+          lineNumber++
+        ) {
+          const line =
+            buffer.getLine(
+              lineNumber
+            );
+
+          if (!line) {
+            continue;
+          }
+
+          if (
+            !physicalGroups.length ||
+            !line.isWrapped
+          ) {
+            physicalGroups.push(
+              []
+            );
+          }
+
+          physicalGroups[
+            physicalGroups.length - 1
+          ].push({
+            row:
+              lineNumber -
+                card.start.line,
+          });
+        }
+
+        const logicalLines =
+          String(
+            card.copyOutput || ""
+          )
+            .split(
+              "\n"
+            );
+
+        const contentColumns =
+          Math.max(
+            1,
+            (
+              Number(
+                this.xterm.cols
+              ) || 1
+            ) -
+              outputIndent * 2
+          );
+
+        physicalGroups.forEach(
+          (
+            group,
+            groupIndex
+          ) => {
+            const logicalText =
+              groupIndex <
+                logicalLines.length
+                ? logicalLines[
+                    groupIndex
+                  ]
+                : "";
+
+            let offset =
+              0;
+
+            group.forEach(
+              (
+                physicalRow,
+                rowIndex
+              ) => {
+                const lastRow =
+                  rowIndex ===
+                    group.length - 1;
+
+                const text =
+                  lastRow
+                    ? logicalText.slice(
+                        offset
+                      )
+                    : logicalText.slice(
+                        offset,
+                        offset +
+                          contentColumns
+                      );
+
+                if (!lastRow) {
+                  offset +=
+                    text.length;
+                }
+
+                outputRows.push({
+                  row:
+                    physicalRow.row,
+
+                  text,
+                });
+              }
+            );
+          }
+        );
+
+
+        if (
+          !Array.isArray(
+            card.outputRowElements
+          )
+        ) {
+          card.outputRowElements =
+            [];
+        }
+
+
+        while (
+          card.outputRowElements
+            .length >
+          outputRows.length
+        ) {
+          const rowElement =
+            card.outputRowElements
+              .pop();
+
+          try {
+            rowElement.remove();
+          } catch {}
+        }
+
+
+        while (
+          card.outputRowElements
+            .length <
+          outputRows.length
+        ) {
+          const rowElement =
+            document
+              .createElement(
+                "div"
+              );
+
+          rowElement._hccKind =
+            "output";
+
+          card
+            .wrappedCommandPresentation
+            .appendChild(
+              rowElement
+            );
+
+          card.outputRowElements
+            .push(
+              rowElement
+            );
+        }
+
+
+        outputRows.forEach(
+          (
+            outputRow,
+            index
+          ) => {
+            const rowElement =
+              card.outputRowElements[
+                index
+              ];
+
+            rowElement.textContent =
+              outputRow.text;
+
+            rowElement._hccRow =
+              outputRow.row;
+
+            rowElement._hccKind =
+              "output";
+
+            Object.assign(
+              rowElement.style,
+              {
+                position:
+                  "absolute",
+
+                display:
+                  "none",
+
+                overflow:
+                  "hidden",
+
+                boxSizing:
+                  "border-box",
+
+                whiteSpace:
+                  "pre",
+
+                color:
+                  terminalTheme.foreground ||
+                  "var(--hcc-foreground, #E6E8EA)",
+
+                background:
+                  rowBackground,
+
+                fontFamily:
+                  terminalOptions.fontFamily ||
+                  "monospace",
+
+                fontSize:
+                  `${Number(
+                    terminalOptions.fontSize
+                  ) || 14}px`,
+
+                fontWeight:
+                  terminalOptions.fontWeight ||
+                  "normal",
+
+                letterSpacing:
+                  `${Number(
+                    terminalOptions.letterSpacing
+                  ) || 0}px`,
+
+                fontVariantLigatures:
+                  "none",
+
+                pointerEvents:
+                  "none",
+              }
+            );
+          }
+        );
+
+
+        /*
+         * Collapse height also depends on the current reflow.
+         */
+        card.commandRows =
+          hasOutputMarker
+            ? Math.max(
+                1,
+                card.output.line -
+                  card.start.line
+              )
+            : Math.max(
+                1,
+                card.commandRows || 1
+              );
+      }
+
 
       scheduleGeometryUpdate() {
         if (
@@ -10704,109 +12094,57 @@ exports.decorateTerm =
       updateStickyCopyControl(
         viewportY = null
       ) {
+        this.pendingGroupScopeViewportY =
+          viewportY;
+
         if (
-          !this.overlay ||
-          !this.xterm ||
-          !this.cellHeight
+          this.groupScopeScrollRaf
         ) {
           return;
         }
 
+        this.groupScopeScrollRaf =
+          requestAnimationFrame(
+            () => {
+              this.groupScopeScrollRaf =
+                0;
+
+              this
+                .updateGroupScopeHost(
+                  this
+                    .pendingGroupScopeViewportY
+                );
+
+              this.pendingGroupScopeViewportY =
+                null;
+            }
+          );
+      }
+
+
+      updateGroupScopeHost(
+        viewportY = null
+      ) {
         if (
-          viewportY === null ||
-          viewportY === undefined
+          !this.xterm
         ) {
-          try {
-            viewportY =
-              this.xterm
-                .buffer
-                .active
-                .viewportY;
-          } catch {
-            viewportY =
-              this.viewportY;
-          }
+          return;
         }
 
-        const viewportTop =
-          this.screenTop;
-
-        const anchorTop =
-          viewportTop + 6;
-
-        const controlHeight =
-          22;
-
-        let activeCard =
-          null;
-
-        let activeBottom =
-          0;
-
-        // Find the card crossing the top edge of the viewport.
-        for (
-          const card
-          of this.cards
-        ) {
-          if (
-            !card.element ||
-            !card.controls ||
-            card.start.isDisposed ||
-            card.end.isDisposed
-          ) {
-            continue;
-          }
-
-          const cardTop =
-            Number.parseFloat(
-              card.element.style.top
-            ) || 0;
-
-          const cardHeight =
-            Number.parseFloat(
-              card.element.style.height
-            ) || 0;
-
-          const visibleTop =
-            cardTop -
-            viewportY *
-              this.cellHeight;
-
-          const visibleBottom =
-            visibleTop +
-            cardHeight;
-
-          if (
-            visibleTop <
-              viewportTop &&
-            visibleBottom >
-              viewportTop
-          ) {
-            activeCard =
-              card;
-
-            activeBottom =
-              visibleBottom;
-
-            break;
-          }
-        }
-
-        // Return the previous controls to their card.
+        /*
+         * Card-specific controls never leave their cards.
+         */
         if (
-          this.stickyCopyCard &&
-          this.stickyCopyCard !==
-            activeCard
+          this.stickyCopyCard
         ) {
           const oldCard =
             this.stickyCopyCard;
 
           if (
-            this.cards.includes(
-              oldCard
-            ) &&
             oldCard.element &&
-            oldCard.controls
+            oldCard.controls &&
+            oldCard.element
+              .isConnected
           ) {
             oldCard.element
               .appendChild(
@@ -10814,8 +12152,7 @@ exports.decorateTerm =
               );
 
             Object.assign(
-              oldCard.controls
-                .style,
+              oldCard.controls.style,
               {
                 position:
                   "absolute",
@@ -10833,71 +12170,459 @@ exports.decorateTerm =
                   "30",
               }
             );
-          } else if (
-            oldCard.controls
-          ) {
-            oldCard.controls
-              .remove();
           }
 
           this.stickyCopyCard =
             null;
         }
 
-        if (!activeCard) {
+
+        /*
+         * Always measure groups from each card's natural
+         * header position. Sticky positioning is applied only
+         * after group-host selection below.
+         */
+        for (
+          const card
+          of this.cards
+        ) {
+          if (
+            card &&
+            card.controls
+          ) {
+            card.controls.style.transform =
+              "none";
+
+            card.controls.style.willChange =
+              "auto";
+          }
+        }
+
+
+        const screen =
+          (
+            this.xterm.element &&
+            this.xterm.element
+              .querySelector
+          )
+            ? this.xterm.element
+                .querySelector(
+                  ".xterm-screen"
+                )
+            : null;
+
+
+        if (!screen) {
           return;
         }
 
-        // Pin the active card's controls to the viewport.
-        if (
-          this.stickyCopyCard !==
-            activeCard
-        ) {
-          this.stickyCopyCard =
-            activeCard;
 
-          this.overlay
-            .appendChild(
-              activeCard
-                .controls
+        const screenRect =
+          screen
+            .getBoundingClientRect();
+
+
+        /*
+         * The group control changes host around this line.
+         * Keeping it below the very top reduces rapid changes
+         * when the window is short.
+         */
+        const anchorY =
+          screenRect.top +
+          Math.min(
+            42,
+            Math.max(
+              26,
+              screenRect.height *
+                0.08
+            )
+          );
+
+
+        /*
+         * A new host must be clearly closer to the anchor
+         * before we switch. This prevents back-and-forth
+         * movement around a boundary.
+         */
+        const switchBuffer =
+          28;
+
+
+        for (
+          const group
+          of this.commandGroups
+            .values()
+        ) {
+          if (
+            !group ||
+            !group.groupScopeControl
+          ) {
+            continue;
+          }
+
+
+          const cards =
+            (group.cards || [])
+              .filter(
+                (card) =>
+                  card &&
+                  card.element &&
+                  card.element
+                    .isConnected &&
+                  card.scopeDock &&
+                  card.groupScopeSlot
+              )
+              .map(
+                (card) => {
+                  const dockRect =
+                    card.scopeDock
+                      .getBoundingClientRect();
+
+                  const cardRect =
+                    card.element
+                      .getBoundingClientRect();
+
+                  const nearestY =
+                    Math.min(
+                      Math.max(
+                        anchorY,
+                        cardRect.top
+                      ),
+                      cardRect.bottom
+                    );
+
+                  return {
+                    card,
+                    dockRect,
+                    cardRect,
+
+                    distance:
+                      Math.abs(
+                        nearestY -
+                          anchorY
+                      ),
+                  };
+                }
+              )
+              .sort(
+                (a, b) => {
+                  const aIndex =
+                    Number(
+                      a.card.groupIndex
+                    ) || 0;
+
+                  const bIndex =
+                    Number(
+                      b.card.groupIndex
+                    ) || 0;
+
+                  if (
+                    aIndex !==
+                    bIndex
+                  ) {
+                    return (
+                      aIndex -
+                      bIndex
+                    );
+                  }
+
+                  return (
+                    a.dockRect.top -
+                    b.dockRect.top
+                  );
+                }
+              );
+
+
+          if (!cards.length) {
+            continue;
+          }
+
+
+          /*
+           * Headers near the viewport are eligible. The extra
+           * padding lets the next/previous card become a
+           * candidate before the old host is completely gone.
+           */
+          const candidates =
+            cards.filter(
+              (item) =>
+                item.cardRect.bottom >
+                  screenRect.top -
+                    36 &&
+                item.cardRect.top <
+                  screenRect.bottom +
+                    36
             );
 
-          Object.assign(
-            activeCard
-              .controls
-              .style,
-            {
-              position:
-                "absolute",
 
-              right:
-                `${CARD_SIDE_GAP + 10}px`,
+          if (!candidates.length) {
+            continue;
+          }
 
-              transform:
-                "none",
 
-              zIndex:
-                "50",
+          const best =
+            [...candidates]
+              .sort(
+                (a, b) =>
+                  a.distance -
+                  b.distance
+              )[0];
+
+
+          const current =
+            cards.find(
+              (item) =>
+                item.card ===
+                  group
+                    .groupScopeHostCard
+            ) ||
+            null;
+
+
+          let target =
+            current;
+
+
+          if (!current) {
+            target =
+              best;
+          } else {
+            const currentOnScreen =
+              current.cardRect.bottom >
+                screenRect.top &&
+              current.cardRect.top <
+                screenRect.bottom;
+
+
+            const bestIsDifferent =
+              best.card !==
+                current.card;
+
+
+            const bestClearlyCloser =
+              best.distance +
+                switchBuffer <
+              current.distance;
+
+
+            /*
+             * Moving upward works here too: as soon as the
+             * preceding card becomes clearly closer to the
+             * anchor, it becomes the host.
+             */
+            if (
+              bestIsDifferent &&
+              (
+                !currentOnScreen ||
+                bestClearlyCloser
+              )
+            ) {
+              target =
+                best;
             }
-          );
+          }
+
+
+          if (
+            !target ||
+            target.card ===
+              group
+                .groupScopeHostCard
+          ) {
+            continue;
+          }
+
+
+          const control =
+            group.groupScopeControl;
+
+
+          /*
+           * FLIP animation:
+           * measure -> move -> measure -> animate.
+           *
+           * This makes a host change look like one smooth
+           * movement instead of a jump.
+           */
+          let oldRect =
+            null;
+
+
+          try {
+            oldRect =
+              control
+                .getBoundingClientRect();
+          } catch {}
+
+
+          target.card
+            .groupScopeSlot
+            .appendChild(
+              control
+            );
+
+
+          group.groupScopeHostCard =
+            target.card;
+
+
+          if (
+            group.groupActionCard
+          ) {
+            group.groupActionCard
+              .element =
+                target.card
+                  .element;
+          }
+
+
+          let newRect =
+            null;
+
+
+          try {
+            newRect =
+              control
+                .getBoundingClientRect();
+          } catch {}
+
+
+          if (
+            oldRect &&
+            newRect &&
+            oldRect.width > 0 &&
+            oldRect.height > 0
+          ) {
+            const deltaX =
+              oldRect.left -
+              newRect.left;
+
+            const deltaY =
+              oldRect.top -
+              newRect.top;
+
+
+            control.style.transition =
+              "none";
+
+            control.style.transform =
+              `translate3d(${deltaX}px, ${deltaY}px, 0)`;
+
+
+            /*
+             * Force the starting position to be registered.
+             */
+            void control.offsetWidth;
+
+
+            requestAnimationFrame(
+              () => {
+                control.style.transition =
+                  "transform 120ms cubic-bezier(0.2, 0.7, 0.2, 1)";
+
+                control.style.transform =
+                  "translate3d(0, 0, 0)";
+              }
+            );
+          }
         }
 
-        // Let the controls leave with the bottom of the card.
-        const stickyTop =
-          Math.min(
-            anchorTop,
+        /*
+         * Constrained card-control stickiness.
+         *
+         * When the top of a tall card scrolls above the
+         * viewport, keep its controls reachable near the top
+         * right. The controls remain children of that card and
+         * stop moving before reaching the card's bottom.
+         *
+         * No controls are reparented and no sticky state is
+         * carried between cards.
+         */
+        const controlAnchorTop =
+          screenRect.top + 6;
 
-            activeBottom -
-              controlHeight -
-              6
-          );
+        for (
+          const card
+          of this.cards
+        ) {
+          if (
+            !card ||
+            !card.element ||
+            !card.element.isConnected ||
+            !card.controls ||
+            !card.controls.isConnected
+          ) {
+            continue;
+          }
 
-        activeCard
-          .controls
-          .style
-          .top =
-            `${stickyTop}px`;
+          const cardRect =
+            card.element
+              .getBoundingClientRect();
+
+          const controlsRect =
+            card.controls
+              .getBoundingClientRect();
+
+          /*
+           * Only one card should normally cross this anchor,
+           * but applying the rule per card keeps the behavior
+           * deterministic at card boundaries.
+           */
+          const crossesAnchor =
+            cardRect.top <
+              controlAnchorTop &&
+            cardRect.bottom >
+              controlAnchorTop +
+                controlsRect.height +
+                6;
+
+          if (!crossesAnchor) {
+            card.controls.style.transform =
+              "none";
+
+            card.controls.style.willChange =
+              "auto";
+
+            continue;
+          }
+
+          const naturalTop =
+            controlsRect.top;
+
+          const maximumTop =
+            Math.max(
+              naturalTop,
+              cardRect.bottom -
+                controlsRect.height -
+                6
+            );
+
+          const stickyTop =
+            Math.min(
+              Math.max(
+                controlAnchorTop,
+                naturalTop
+              ),
+              maximumTop
+            );
+
+          const offset =
+            Math.max(
+              0,
+              stickyTop -
+                naturalTop
+            );
+
+          card.controls.style.willChange =
+            "transform";
+
+          card.controls.style.transform =
+            `translate3d(0, ${offset}px, 0)`;
+        }
+
       }
+
 
       updateScrollbar(
         viewportY = null
@@ -11154,10 +12879,16 @@ exports.decorateTerm =
           if (
             card.wrappedCommandRowElements
           ) {
+            const commandIndent =
+              Math.max(
+                0,
+                card.commandIndentColumns || 0
+              );
+
             const outputIndent =
               Math.max(
                 0,
-                card.outputIndentColumns || 0
+                card.outputIndentColumns || OUTPUT_INDENT_COLUMNS
               );
 
             const screenOffset =
@@ -11167,9 +12898,20 @@ exports.decorateTerm =
                   CARD_SIDE_GAP
               );
 
+            const presentationRows = [
+              ...(
+                card.wrappedCommandRowElements ||
+                []
+              ),
+              ...(
+                card.outputRowElements ||
+                []
+              ),
+            ];
+
             for (
               const rowElement
-              of card.wrappedCommandRowElements
+              of presentationRows
             ) {
               const row =
                 Number.isFinite(
@@ -11182,15 +12924,38 @@ exports.decorateTerm =
                 rowElement.style,
                 {
                   display:
-                    "block",
+                    (
+                      card.collapsed &&
+                      rowElement._hccKind ===
+                        "output"
+                    )
+                      ? "none"
+                      : "block",
 
                   left:
                     `${screenOffset}px`,
 
                   width:
+                    rowElement._hccKind ===
+                      "output"
+                      ? `${Math.max(
+                          0,
+                          this.screenWidth -
+                            screenOffset
+                        )}px`
+                      : "max-content",
+
+                  maxWidth:
                     `${Math.max(
                       0,
-                      this.screenWidth
+                      this.screenWidth -
+                        screenOffset
+                    )}px`,
+
+                  paddingRight:
+                    `${Math.max(
+                      1,
+                      this.cellWidth
                     )}px`,
 
                   top:
@@ -11205,8 +12970,15 @@ exports.decorateTerm =
                     `${this.cellHeight}px`,
 
                   paddingLeft:
-                    `${outputIndent *
-                      this.cellWidth}px`,
+                      `${
+                        (
+                          rowElement._hccKind ===
+                            "output"
+                            ? outputIndent
+                            : commandIndent
+                        ) *
+                        this.cellWidth
+                      }px`,
 
                   lineHeight:
                     `${this.cellHeight}px`,

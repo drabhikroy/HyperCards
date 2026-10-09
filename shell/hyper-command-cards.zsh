@@ -11,6 +11,7 @@ typeset -gi HCC_GROUP_COUNTER=0
 typeset -g HCC_ACTIVE_GROUP=""
 typeset -gi HCC_GROUP_INDEX=0
 typeset -gi HCC_GROUP_TOTAL=0
+typeset -g HCC_EXPECTED_GROUP_COMMAND=""
 
 PROMPT_EOL_MARK=''
 
@@ -109,20 +110,37 @@ _hcc_report_cursor() {
 }
 
 _hcc_preexec() {
+  local hcc_preexec_command="$1"
+
   printf '\r\n'
 
   if [[ -n ${HCC_ACTIVE_GROUP:-} ]]; then
-    printf '\e]777;hcc;group;%s;%d;%d\a' \
-      "$HCC_ACTIVE_GROUP" \
-      "$HCC_GROUP_INDEX" \
-      "$HCC_GROUP_TOTAL"
+    if [[
+      -n ${HCC_EXPECTED_GROUP_COMMAND:-} &&
+      "$hcc_preexec_command" == "$HCC_EXPECTED_GROUP_COMMAND"
+    ]]; then
+      printf '\e]777;hcc;group;%s;%d;%d\a' \
+        "$HCC_ACTIVE_GROUP" \
+        "$HCC_GROUP_INDEX" \
+        "$HCC_GROUP_TOTAL"
 
-    if (( HCC_GROUP_INDEX >= HCC_GROUP_TOTAL )); then
+      if (( HCC_GROUP_INDEX >= HCC_GROUP_TOTAL )); then
+        HCC_ACTIVE_GROUP=""
+        HCC_GROUP_INDEX=0
+        HCC_GROUP_TOTAL=0
+        HCC_EXPECTED_GROUP_COMMAND=""
+      else
+        HCC_GROUP_INDEX=$(( HCC_GROUP_INDEX + 1 ))
+      fi
+    else
+      # A different command ran before the expected queued
+      # command. Cancel stale group state rather than attaching
+      # the old batch metadata to an unrelated card.
       HCC_ACTIVE_GROUP=""
       HCC_GROUP_INDEX=0
       HCC_GROUP_TOTAL=0
-    else
-      HCC_GROUP_INDEX=$(( HCC_GROUP_INDEX + 1 ))
+      HCC_EXPECTED_GROUP_COMMAND=""
+      HCC_COMMAND_QUEUE=()
     fi
   fi
 
@@ -193,9 +211,15 @@ _hcc_accept_line() {
   local -a hcc_lines
   local -a hcc_commands
   local hcc_line
+  local hcc_buffer="$BUFFER"
   local -i hcc_i
 
-  hcc_lines=("${(@f)BUFFER}")
+  # A backslash followed by a newline is one logical shell
+  # command line. Join those continuations before deciding
+  # whether a paste contains multiple commands.
+  hcc_buffer=${hcc_buffer//$'\\\n'/}
+
+  hcc_lines=("${(@f)hcc_buffer}")
 
   for hcc_line in "${hcc_lines[@]}"; do
     if [[ -n "${hcc_line//[[:space:]]/}" ]]; then
@@ -219,6 +243,7 @@ _hcc_accept_line() {
   HCC_ACTIVE_GROUP="$$-$HCC_GROUP_COUNTER"
   HCC_GROUP_INDEX=1
   HCC_GROUP_TOTAL=${#hcc_commands[@]}
+  HCC_EXPECTED_GROUP_COMMAND=${hcc_commands[1]}
 
   HCC_COMMAND_QUEUE=()
 
@@ -253,6 +278,8 @@ _hcc_line_init() {
 
   local hcc_next=${HCC_COMMAND_QUEUE[1]}
   HCC_COMMAND_QUEUE[1]=()
+
+  HCC_EXPECTED_GROUP_COMMAND="$hcc_next"
 
   zle -U "$hcc_next"$'\n'
 }

@@ -20,12 +20,12 @@ Each command stays connected to its output, making long terminal sessions easier
 
 - Places each completed command and its output in a separate card
 - Shows a compact command result and elapsed time when available
-- Keeps regular card actions in one **Actions** menu
+- Keeps per-card copy and collapse actions in one **This card** menu
 - Searches commands and output from the current terminal session
 - Selects multiple cards and copies their output, commands, or both in terminal order
-- Groups commands from the same multiline paste into a numbered batch with shared controls
-- Marks completed batches with success or failure symbols
-- Makes a batch easier to identify when its tab is hovered or focused
+- Groups commands from the same multiline paste and gives the group an **All x cards** menu with shared controls
+- Keeps shared group actions available as the visible group moves while scrolling
+- Visually marks related cards while the group menu is hovered or open
 - Starts output beneath the command text rather than beneath the prompt
 - Collapses output and reclaims the terminal rows it occupied
 - Restores collapsed output when needed
@@ -40,16 +40,14 @@ Each command stays connected to its output, making long terminal sessions easier
 
 ## Card controls
 
-Each completed card shows its result and an **Actions ▾** control in the upper-right corner.
+Each completed card shows its result and a **This card ▾** control in the upper-right corner.
 
-The Actions menu includes:
+The **This card** menu includes:
 
 - Copy output
 - Copy command
 - Copy command + output
 - Collapse card or Expand card
-
-![Card Actions menu](assets/screenshots/actions-menu.png)
 
 Collapsed cards remove their output rows from the visible terminal rather than simply hiding them.
 
@@ -60,12 +58,19 @@ The Hyper Cards button near the top of the terminal opens session-wide controls:
 - Search cards
 - Select cards or Stop selecting
 - Collapse all or Expand all
+- Highlight, with independent switches for the current card and command groups
+
+![Hyper Cards menu](assets/screenshots/actions-menu.png)
+
+The **Highlight** flyout keeps the two highlight settings independent.
+
+![Highlight controls](assets/screenshots/highlight-menu.png)
 
 The wording changes when the current state changes. For example, **Collapse all** becomes **Expand all** when every visible card is collapsed.
 
 ## Command results
 
-Completed cards show a compact result beside the Actions control. Longer-running commands also show elapsed time.
+Completed cards show a compact result beside the **This card** control. Longer-running commands also show elapsed time.
 
 Examples include:
 
@@ -101,22 +106,20 @@ Selected cards are copied in their original terminal order, regardless of the or
 
 A successful bulk copy clears the selection. **Cancel**, **Stop selecting**, or `Esc` exits selection mode without copying.
 
-## Command batches
+## Command groups
 
-When several independent commands are pasted together, Hyper Cards keeps each command in its own card and marks the related cards as one batch.
+When several independent commands are pasted together, Hyper Cards keeps each command in its own card and treats the related cards as one command group.
 
-A compact batch tab sits beside the first card in the batch. It begins with the number of commands in the batch.
+Each card keeps its normal **This card ▾** menu. A separate **All x cards ▾** menu provides shared controls for the group:
 
-- `! N` appears as soon as any command in the batch returns a nonzero exit code
-- `✓ N` appears after every command in the batch completes successfully
+- Copy output
+- Copy command
+- Copy command + output
+- Collapse all cards or Expand all cards
 
-![Command batch](assets/screenshots/batch-grouping.png)
+![Command group controls](assets/screenshots/group-actions-menu.png)
 
-Hover over or move keyboard focus to the batch tab to reveal its batch controls and make the related batch easier to identify.
-
-![Batch spotlight](assets/screenshots/batch-spotlight.png)
-
-Batch copying can copy output, commands, or commands with output. Each command still remains a normal Hyper Card with its own Actions menu.
+The group menu stays with the visible portion of the group as terminal content moves. Hovering the group menu, or leaving it open, visually marks the related cards.
 
 ## Keyboard access
 
@@ -198,7 +201,7 @@ The shell module checks whether each nonblank line is valid zsh syntax on its ow
 
 If it is, the commands are queued and sent one at a time as each new prompt becomes ready.
 
-Commands queued from the same paste are marked as one batch. Each command still keeps its own card and controls.
+Commands queued from the same paste are treated as one command group. Each command still keeps its own card and controls.
 
 Some shell structures naturally span several lines. Heredocs are one example.
 
@@ -208,9 +211,11 @@ In those cases, zsh may display continuation marks after the text is pasted. Pre
 
 Cards can span many terminal rows while staying connected to the command that produced them.
 
-![Long command output](assets/screenshots/long-output.png)
+![Long output after resize](assets/screenshots/long-output-reflow.png)
 
 Card placement and controls remain connected to the correct output while the terminal scrolls.
+
+Finished output reflows when the terminal width changes, including output created in a narrow window and later widened. Command and output margins remain consistent as the card changes height.
 
 Hyper Cards also measures the visible width of the final prompt line before a command starts. Output then begins beneath the command text instead of beneath the prompt.
 
@@ -320,14 +325,14 @@ HyperCards/
 ├── assets/
 │   └── screenshots/
 │       ├── actions-menu.png
-│       ├── batch-grouping.png
-│       ├── batch-spotlight.png
 │       ├── card-search.png
 │       ├── collapsed-card.png
 │       ├── command-status.png
+│       ├── group-actions-menu.png
+│       ├── highlight-menu.png
 │       ├── history-picker.png
 │       ├── hyper-cards-overview.png
-│       ├── long-output.png
+│       ├── long-output-reflow.png
 │       ├── multi-select.png
 │       ├── output-alignment.png
 │       └── prompt-main.png
@@ -411,7 +416,7 @@ People with an existing Starship setup can copy the sections they want rather th
 The following have been tested on macOS:
 
 - card creation
-- per-card Actions menu
+- per-card **This card** menu
 - output, command, and command + output copying
 - command success and failure results
 - elapsed-time display
@@ -423,23 +428,27 @@ The following have been tested on macOS:
 - terminal-order copying when cards are selected out of order
 - selection clearing with Cancel and `Esc`
 - session-wide Collapse all and Expand all
+- independent current-card and command-group highlighting
 - current-session card search
 - `⌘⇧F` card-search shortcut
 - search match counts
 - card-search close with `Esc`
-- command batch creation from multiline pastes
-- batch-level output copying
-- batch-level command copying
-- batch-level command + output copying
-- batch success and failure states
-- batch-tab hover and keyboard focus behavior
-- batch positioning while terminal content moves
-- multiple batches in the same session
+- command group creation from multiline pastes
+- group-level output copying
+- group-level command copying
+- group-level command + output copying
+- group-level collapse and expand
+- group emphasis while its shared menu is hovered or open
+- group menu movement while terminal content scrolls
+- multiple command groups in the same session
 - card collapse and restore
 - terminal-row reclamation after collapse
 - long-output scrolling
+- finished-output reflow when terminal width changes
+- command and output margins after terminal resize
 - output starting beneath command text
 - multiline command queuing
+- backslash-continuation handling in multiline pastes
 - full terminal clear with no card remnants
 - new card creation after a clear
 - searchable history
