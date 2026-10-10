@@ -4,7 +4,24 @@ if [[ -n ${HCC_LOADED:-} ]]; then
   return 0
 fi
 
+typeset -g HCC_SESSION_TOKEN
+HCC_SESSION_TOKEN="$(
+  LC_ALL=C /usr/bin/od -An -N16 -tx1 /dev/urandom 2>/dev/null |
+    /usr/bin/tr -d ' \n'
+)"
+
+if (( ${#HCC_SESSION_TOKEN} != 32 )) ||
+   [[ -n ${HCC_SESSION_TOKEN//[0-9a-f]/} ]]; then
+  unset HCC_SESSION_TOKEN
+  print -u2 -- "Hyper Cards: could not create a session token."
+  return 1
+fi
+
+readonly HCC_SESSION_TOKEN
 typeset -g HCC_LOADED=1
+
+printf '\e]777;hcc;session;%s\a' \
+  "$HCC_SESSION_TOKEN"
 typeset -g HCC_CARD_OPEN=0
 typeset -ga HCC_COMMAND_QUEUE=()
 typeset -gi HCC_GROUP_COUNTER=0
@@ -16,6 +33,18 @@ typeset -g HCC_EXPECTED_GROUP_COMMAND=""
 PROMPT_EOL_MARK=''
 
 typeset -gi HCC_OUTPUT_MARKED=0
+typeset -gi HCC_CLEAR_PENDING=0
+typeset -gi HCC_STARSHIP_PREFIX_ROWS=0
+
+typeset -g HCC_COMMENT_MODE="${HCC_COMMENT_MODE:-show}"
+
+case "$HCC_COMMENT_MODE" in
+  show|hide)
+    ;;
+  *)
+    HCC_COMMENT_MODE="show"
+    ;;
+esac
 
 autoload -Uz add-zsh-hook
 autoload -Uz add-zle-hook-widget
@@ -36,22 +65,28 @@ _hcc_split_starship_prompt() {
   [[ -n ${HCC_STARSHIP_PROMPT_SOURCE:-} ]] ||
     return
 
-  local hcc_rendered
+  local hcc_expanded
   local -a hcc_prompt_lines
 
-  hcc_rendered=$(
-    print -P -- "$HCC_STARSHIP_PROMPT_SOURCE"
-  )
+  # Expand Starship's command substitution without performing
+  # zsh prompt expansion. This preserves the nonprinting markers
+  # Starship provides for ZLE cursor-width accounting.
+  hcc_expanded="${(e)HCC_STARSHIP_PROMPT_SOURCE}"
 
   hcc_prompt_lines=(
-    "${(@f)hcc_rendered}"
+    "${(@f)hcc_expanded}"
   )
+
+  HCC_STARSHIP_PREFIX_ROWS=$(( ${#hcc_prompt_lines[@]} - 1 ))
+
+  (( HCC_STARSHIP_PREFIX_ROWS < 0 )) &&
+    HCC_STARSHIP_PREFIX_ROWS=0
 
   (( ${#hcc_prompt_lines[@]} )) ||
     return
 
   if (( ${#hcc_prompt_lines[@]} > 1 )); then
-    print -r -- \
+    print -P -- \
       "${(F)hcc_prompt_lines[1,-2]}"
   fi
 
@@ -73,44 +108,25 @@ _hcc_prompt_columns() {
 }
 
 
-_hcc_report_cursor() {
-  emulate -L zsh
-
-  local hcc_no_newlines="${BUFFER//$'\n'/}"
-  local hcc_left_no_newlines="${LBUFFER//$'\n'/}"
-  local hcc_cursor_tail="${LBUFFER##*$'\n'}"
-
-  local -i hcc_buffer_length=${#BUFFER}
-  local -i hcc_buffer_lines=$(( ${#BUFFER} - ${#hcc_no_newlines} + 1 ))
-  local -i hcc_cursor_line=$(( ${#LBUFFER} - ${#hcc_left_no_newlines} ))
-  local -i hcc_cursor_column=${#hcc_cursor_tail}
-
-  if ((
-    CURSOR == ${HCC_LAST_CURSOR:--1} &&
-    hcc_buffer_length == ${HCC_LAST_BUFFER_LENGTH:--1} &&
-    hcc_buffer_lines == ${HCC_LAST_BUFFER_LINES:--1} &&
-    hcc_cursor_line == ${HCC_LAST_CURSOR_LINE:--1} &&
-    hcc_cursor_column == ${HCC_LAST_CURSOR_COLUMN:--1}
-  )); then
-    return
-  fi
-
-  typeset -gi HCC_LAST_CURSOR=$CURSOR
-  typeset -gi HCC_LAST_BUFFER_LENGTH=$hcc_buffer_length
-  typeset -gi HCC_LAST_BUFFER_LINES=$hcc_buffer_lines
-  typeset -gi HCC_LAST_CURSOR_LINE=$hcc_cursor_line
-  typeset -gi HCC_LAST_CURSOR_COLUMN=$hcc_cursor_column
-
-  printf '\e]777;hcc;cursor;%d;%d;%d;%d;%d\a' \
-    "$CURSOR" \
-    "$hcc_buffer_length" \
-    "$hcc_buffer_lines" \
-    "$hcc_cursor_line" \
-    "$hcc_cursor_column"
-}
-
 _hcc_preexec() {
   local hcc_preexec_command="$1"
+
+  case "$hcc_preexec_command" in
+    clear|"clear -x")
+      HCC_CLEAR_PENDING=1
+      HCC_CARD_OPEN=0
+      HCC_OUTPUT_MARKED=0
+
+      # DEC save cursor. clear may home the terminal, but the
+      # original prompt position can be restored afterward.
+      printf '\e7'
+
+      return 0
+      ;;
+    *)
+      HCC_CLEAR_PENDING=0
+      ;;
+  esac
 
   printf '\r\n'
 
@@ -119,7 +135,8 @@ _hcc_preexec() {
       -n ${HCC_EXPECTED_GROUP_COMMAND:-} &&
       "$hcc_preexec_command" == "$HCC_EXPECTED_GROUP_COMMAND"
     ]]; then
-      printf '\e]777;hcc;group;%s;%d;%d\a' \
+      printf '\e]777;hcc;%s;group;%s;%d;%d\a' \
+        "$HCC_SESSION_TOKEN" \
         "$HCC_ACTIVE_GROUP" \
         "$HCC_GROUP_INDEX" \
         "$HCC_GROUP_TOTAL"
@@ -134,8 +151,8 @@ _hcc_preexec() {
       fi
     else
       # A different command ran before the expected queued
-      # command. Cancel stale group state rather than attaching
-      # the old batch metadata to an unrelated card.
+      # command. Cancel the pending group so its metadata is not
+      # attached to an unrelated card.
       HCC_ACTIVE_GROUP=""
       HCC_GROUP_INDEX=0
       HCC_GROUP_TOTAL=0
@@ -153,10 +170,12 @@ _hcc_preexec() {
   (( hcc_indent > 999 )) &&
     hcc_indent=999
 
-  printf '\e]777;hcc;indent;%03d\a' \
+  printf '\e]777;hcc;%s;indent;%03d\a' \
+    "$HCC_SESSION_TOKEN" \
     "$hcc_indent"
 
-  printf '\e]777;hcc;output\a'
+  printf '\e]777;hcc;%s;output\a' \
+    "$HCC_SESSION_TOKEN"
   HCC_OUTPUT_MARKED=1
 }
 
@@ -173,21 +192,49 @@ _hcc_precmd() {
     (( hcc_indent > 999 )) &&
       hcc_indent=999
 
-    printf '\e]777;hcc;indent;%03d\a' "$hcc_indent"
-    printf '\e]777;hcc;output\a'
+    printf '\e]777;hcc;%s;indent;%03d\a' \
+      "$HCC_SESSION_TOKEN" \
+      "$hcc_indent"
+    printf '\e]777;hcc;%s;output\a' \
+      "$HCC_SESSION_TOKEN"
     hcc_status=130
   fi
 
   HCC_OUTPUT_MARKED=0
 
+  if (( HCC_CLEAR_PENDING )); then
+    HCC_CLEAR_PENDING=0
+    HCC_CARD_OPEN=0
+    HCC_OUTPUT_MARKED=0
+
+    # Restore the cursor saved immediately before clear.
+    printf '\e8\r'
+
+    # The saved position is the editable prompt row. Move to
+    # the row where Starship's prefix begins so its complete
+    # multi-line prompt returns to the same location.
+    printf '\e[%dA' \
+      "$(( HCC_STARSHIP_PREFIX_ROWS + 1 ))"
+
+    printf '\e]777;hcc;%s;prompt\a' \
+      "$HCC_SESSION_TOKEN"
+
+    HCC_CARD_OPEN=1
+    return 0
+  fi
+
   if (( HCC_CARD_OPEN )); then
     printf '\r\n'
-    printf '\e]777;hcc;done\a'
-    printf '\e]777;hcc;result;%d\a' "$hcc_status"
+    printf '\e]777;hcc;%s;done\a' \
+      "$HCC_SESSION_TOKEN"
+    printf '\e]777;hcc;%s;result;%d\a' \
+      "$HCC_SESSION_TOKEN" \
+      "$hcc_status"
     printf '\r\n\r\n'
   fi
 
-  printf '\e]777;hcc;prompt\a'
+  printf '\e]777;hcc;%s;prompt\a' \
+    "$HCC_SESSION_TOKEN"
   printf '\r\n'
 
   HCC_CARD_OPEN=1
@@ -227,7 +274,55 @@ _hcc_accept_line() {
     fi
   done
 
+  # Treat comment-only lines as context for an adjacent command,
+  # not as separate Hyper Cards.
+  local -a hcc_merged_commands=()
+  local hcc_pending_comments=""
+
+  local hcc_trimmed_line
+
+  for hcc_line in "${hcc_commands[@]}"; do
+    hcc_trimmed_line="${hcc_line#"${hcc_line%%[![:space:]]*}"}"
+
+    if [[ "$hcc_trimmed_line" == \#* ]]; then
+      if [[ "$HCC_COMMENT_MODE" == "hide" ]]; then
+        continue
+      fi
+
+      if [[ -n "$hcc_pending_comments" ]]; then
+        hcc_pending_comments+=$'\n'
+      fi
+
+      hcc_pending_comments+="$hcc_line"
+      continue
+    fi
+
+    if [[ -n "$hcc_pending_comments" ]]; then
+      hcc_line="${hcc_pending_comments}"$'\n'"${hcc_line}"
+      hcc_pending_comments=""
+    fi
+
+    hcc_merged_commands+=("$hcc_line")
+  done
+
+  # A trailing comment belongs to the preceding command. If the
+  # paste contains only comments, leave it as one shell submission.
+  if [[ -n "$hcc_pending_comments" ]]; then
+    if (( ${#hcc_merged_commands[@]} )); then
+      hcc_merged_commands[-1]+=$'\n'"$hcc_pending_comments"
+    else
+      hcc_merged_commands+=("$hcc_pending_comments")
+    fi
+  fi
+
+  hcc_commands=("${hcc_merged_commands[@]}")
+
   if (( ${#hcc_commands[@]} < 2 )); then
+    if (( ${#hcc_commands[@]} == 1 )); then
+      BUFFER=${hcc_commands[1]}
+      CURSOR=${#BUFFER}
+    fi
+
     zle .accept-line
     return
   fi
@@ -265,11 +360,6 @@ _hcc_accept_line() {
 _hcc_line_init() {
   emulate -L zsh
 
-  HCC_LAST_CURSOR=-1
-  HCC_LAST_BUFFER_LENGTH=-1
-  HCC_LAST_BUFFER_LINES=-1
-  HCC_LAST_CURSOR_LINE=-1
-  HCC_LAST_CURSOR_COLUMN=-1
 
 
   if (( ${#HCC_COMMAND_QUEUE[@]} == 0 )); then
@@ -282,7 +372,30 @@ _hcc_line_init() {
   HCC_EXPECTED_GROUP_COMMAND="$hcc_next"
 
   zle -U "$hcc_next"$'\n'
+
+  printf '\e]777;hcc;%s;ready\a' \
+    "$HCC_SESSION_TOKEN"
+
 }
+
+_hcc_comments_show() {
+  typeset -g HCC_COMMENT_MODE=show
+}
+
+_hcc_comments_hide() {
+  typeset -g HCC_COMMENT_MODE=hide
+}
+
+zle -N _hcc_comments_show
+zle -N _hcc_comments_hide
+
+bindkey -M emacs $'\e[777;1~' _hcc_comments_show
+bindkey -M viins $'\e[777;1~' _hcc_comments_show
+bindkey -M vicmd $'\e[777;1~' _hcc_comments_show
+
+bindkey -M emacs $'\e[777;2~' _hcc_comments_hide
+bindkey -M viins $'\e[777;2~' _hcc_comments_hide
+bindkey -M vicmd $'\e[777;2~' _hcc_comments_hide
 
 zle -N _hcc_accept_line
 zle -N _hcc_line_init
@@ -291,7 +404,6 @@ bindkey '^M' _hcc_accept_line
 bindkey '^J' _hcc_accept_line
 
 add-zle-hook-widget line-init _hcc_line_init
-add-zle-hook-widget line-pre-redraw _hcc_report_cursor
 
 # Use fzf's zsh history widget with the Hyper Cards picker options.
 _hcc_setup_history_picker() {
@@ -319,17 +431,12 @@ _hcc_setup_history_picker() {
     --color='fg:#E6E8EA,bg:#212121,hl:#AFC4D8,fg+:#F2F3F4,bg+:#252A30,hl+:#AFC4D8,prompt:#A5B8D0,pointer:#95B8AE,marker:#8FBF88,border:#56616F,info:#AAB2BA'
   "
 
-  local integration
-  integration="$(
-    command fzf --zsh 2>/dev/null
-  )"
-
-  if [[ -z $integration ]]; then
+  if ! command fzf --zsh >/dev/null 2>&1; then
     bindkey '^R' history-incremental-search-backward
     return
   fi
 
-  eval "$integration"
+  source <(command fzf --zsh)
 
   # Open Hyper Cards history without filtering by the current command line.
   _hcc_history_widget() {

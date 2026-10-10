@@ -55,18 +55,21 @@ Collapsed cards remove their output rows from the visible terminal rather than s
 
 The Hyper Cards button near the top of the terminal opens session-wide controls:
 
-- Search cards
-- Select cards or Stop selecting
-- Collapse all or Expand all
+- Search
+- Select or Stop selecting
+- Collapse or Expand
+- Comments, which controls whether standalone comment lines are shown with the command that follows
 - Highlight, with independent switches for the current card and command groups
 
 ![Hyper Cards menu](assets/screenshots/actions-menu.png)
+
+**Comments** is checked by default. When checked, standalone lines whose first non-whitespace character is `#` stay with the command that follows. When unchecked, those standalone comment lines are omitted without creating another card or leaving blank space. Inline comments remain part of the command, and terminal output beginning with `#` is always shown.
 
 The **Highlight** flyout keeps the two highlight settings independent.
 
 ![Highlight controls](assets/screenshots/highlight-menu.png)
 
-The wording changes when the current state changes. For example, **Collapse all** becomes **Expand all** when every visible card is collapsed.
+The wording changes when the current state changes. For example, **Collapse** becomes **Expand** when every visible card is collapsed.
 
 ## Command results
 
@@ -90,7 +93,7 @@ Common nonzero exit codes receive short descriptions. Other nonzero codes still 
 
 Multiple cards can be selected and copied together without combining them manually.
 
-Open the Hyper Cards menu and choose **Select cards**. Selection controls then appear on the cards in the current session.
+Open the Hyper Cards menu and choose **Select**. Selection controls then appear on the cards in the current session.
 
 Choose the `○` control on each card you want to include. Selected cards are marked with `✓`, and a compact control bar shows the number of selected cards.
 
@@ -115,7 +118,7 @@ Each card keeps its normal **This card ▾** menu. A separate **All x cards ▾*
 - Copy output
 - Copy command
 - Copy command + output
-- Collapse all cards or Expand all cards
+- Collapse or Expand all cards
 
 ![Command group controls](assets/screenshots/group-actions-menu.png)
 
@@ -137,7 +140,7 @@ No default shortcut is assigned for moving focus directly into card controls. Th
 
 ## Card search
 
-Press `⌘⇧F` or choose **Search cards** from the Hyper Cards menu to search cards from the current terminal session.
+Press `⌘⇧F` or choose **Search** from the Hyper Cards menu to search cards from the current terminal session.
 
 The search checks command text and captured output as you type. Matching cards remain at full strength while nonmatching cards are visually reduced.
 
@@ -171,7 +174,7 @@ Hyper Cards adds a Mac history shortcut while keeping the standard terminal shor
 
 `⌘R` is the default Hyper Cards shortcut, but it can be changed without editing the plugin.
 
-Add a custom binding to the `keymaps` section of `~/.hyper.js`.
+Add a custom binding to the `keymaps` section of `~/Library/Application Support/Hyper/.hyper.js`.
 
 ```js
 keymaps: {
@@ -260,16 +263,18 @@ Hyper Cards uses two pieces from the same installation folder:
 - a local Hyper plugin
 - a zsh module
 
+Current Hyper releases on macOS keep configuration and local plugins under `~/Library/Application Support/Hyper/`. Older installations may still use the legacy `~/.hyper.js` and `~/.hyper_plugins` locations; use whichever location Hyper is already loading.
+
 For a new installation, create Hyper's local-plugin directory and clone Hyper Cards directly into it:
 
 ```sh
-mkdir -p "$HOME/.hyper_plugins/local"
+mkdir -p "$HOME/Library/Application Support/Hyper/.hyper_plugins/local"
 
 git clone https://github.com/drabhikroy/HyperCards.git \
-  "$HOME/.hyper_plugins/local/hyper-command-cards"
+  "$HOME/Library/Application Support/Hyper/.hyper_plugins/local/hyper-command-cards"
 ```
 
-Open `~/.hyper.js` and add Hyper Cards to `localPlugins`:
+Open `~/Library/Application Support/Hyper/.hyper.js` and add Hyper Cards to `localPlugins`:
 
 ```js
 localPlugins: [
@@ -282,7 +287,7 @@ Hyper Cards belongs in `localPlugins`, not the normal `plugins` array.
 Then add the shell module to `~/.zshrc`:
 
 ```sh
-source "$HOME/.hyper_plugins/local/hyper-command-cards/shell/hyper-command-cards.zsh"
+source "$HOME/Library/Application Support/Hyper/.hyper_plugins/local/hyper-command-cards/shell/hyper-command-cards.zsh"
 ```
 
 Quit Hyper completely with `⌘Q`, then reopen it.
@@ -298,7 +303,7 @@ The command and its output should appear together in a card.
 To update an existing Git installation:
 
 ```sh
-cd "$HOME/.hyper_plugins/local/hyper-command-cards"
+cd "$HOME/Library/Application Support/Hyper/.hyper_plugins/local/hyper-command-cards"
 git pull
 ```
 
@@ -312,7 +317,7 @@ Hyper Cards does not automatically replace an existing Hyper or Starship configu
 
 ## Included files
 
-The repository contains the plugin, shell module, appearance presets, documentation, screenshots, font files, licensing material, and installation helpers.
+The repository contains the plugin, shell module, appearance presets, documentation, screenshots, font files, licensing material, and installation instructions.
 
 ```text
 HyperCards/
@@ -323,6 +328,8 @@ HyperCards/
 ├── LICENSE
 ├── NOTICE
 ├── assets/
+│   ├── examples/
+│   │   └── terminal_commands.txt
 │   └── screenshots/
 │       ├── actions-menu.png
 │       ├── card-search.png
@@ -343,8 +350,8 @@ HyperCards/
 │   └── OFL.txt
 ├── presets/
 │   ├── hyper.js
+│   ├── starship-light.toml
 │   └── starship.toml
-├── scripts/
 └── shell/
     └── hyper-command-cards.zsh
 ```
@@ -387,7 +394,7 @@ See:
 
 `presets/hyper.js` is a reference configuration.
 
-It is not meant to replace an existing `~/.hyper.js` automatically.
+It is not meant to replace an existing `~/Library/Application Support/Hyper/.hyper.js` automatically.
 
 People with an existing Hyper setup can compare the preset with their current configuration and copy only the sections they want.
 
@@ -395,7 +402,7 @@ People with an existing Hyper setup can compare the preset with their current co
 
 Hyper Cards uses a 10.5px base UI text size unless an explicit size is set.
 
-To set a separate size, add this rule inside the existing `css` setting in `~/.hyper.js`:
+To set a separate size, add this rule inside the existing `css` setting in `~/Library/Application Support/Hyper/.hyper.js`:
 
 ```css
 .hyper-command-cards-root {
@@ -407,7 +414,7 @@ To set a separate size, add this rule inside the existing `css` setting in `~/.h
 
 ## Starship configuration
 
-`presets/starship.toml` contains the matching prompt configuration used during development and testing.
+`presets/starship.toml` contains the dark prompt preset used in the screenshots. `presets/starship-light.toml` provides the corresponding light preset.
 
 People with an existing Starship setup can copy the sections they want rather than replacing their current configuration.
 
@@ -427,7 +434,7 @@ The following have been tested on macOS:
 - bulk command + output copying
 - terminal-order copying when cards are selected out of order
 - selection clearing with Cancel and `Esc`
-- session-wide Collapse all and Expand all
+- session-wide Collapse and Expand
 - independent current-card and command-group highlighting
 - current-session card search
 - `⌘⇧F` card-search shortcut
@@ -458,6 +465,12 @@ The following have been tested on macOS:
 - `Esc` history close
 - keyboard navigation within controls and menus
 
+## Security and privacy
+
+Hyper Cards runs locally inside Hyper. The plugin does not make network requests, send telemetry, use Electron IPC, or launch child processes. Commands and terminal output remain in the terminal session unless you explicitly copy them. The two highlight preferences and the Comments preference are stored locally as booleans.
+
+The zsh module creates a random 128-bit token for each shell session and does not export it to child processes. Hyper Cards control messages must carry that token, which prevents ordinary command output from impersonating the shell integration. Code sourced directly into the interactive shell still runs with that shell's privileges and can read shell globals.
+
 ## Screenshots and privacy
 
 The screenshots in this repository were reviewed before publication for visible personal information and sensitive strings. Nonessential PNG metadata was removed from the final images.
@@ -472,7 +485,7 @@ Personal use, personal study, hobby projects, teaching, academic research, and o
 
 Commercial use requires a separate license.
 
-Required Notice: Copyright 2026 Abhik Roy.
+The project notice required by the license is provided in [`NOTICE`](NOTICE).
 
 Hyper Cards is an independent project made for use with [Hyper](https://hyper.is). Hyper is separate software and is distributed under the MIT License. Hyper's license applies to Hyper and its source code. The PolyForm Noncommercial License applies to the original Hyper Cards software in this repository.
 

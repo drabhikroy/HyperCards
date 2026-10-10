@@ -9,6 +9,23 @@ Hyper Cards has two core parts:
 
 The repository also includes optional appearance files for Hyper and [Starship](https://starship.rs/), along with a modified FiraCode Nerd Font Mono used by the supplied prompt preset.
 
+## Hyper paths on macOS
+
+Current Hyper releases store the macOS configuration and plugin data under:
+
+```text
+~/Library/Application Support/Hyper/
+```
+
+The paths used in this guide are:
+
+```text
+~/Library/Application Support/Hyper/.hyper.js
+~/Library/Application Support/Hyper/.hyper_plugins/local/
+```
+
+Older Hyper installations may still use `~/.hyper.js` and `~/.hyper_plugins`. Hyper can migrate those legacy locations. If your installation still uses a legacy path, edit the files Hyper is already loading rather than keeping duplicate configurations in both locations.
+
 ## Choose your setup
 
 Use **Fresh setup** if you are starting with a new or mostly unchanged Hyper installation.
@@ -81,20 +98,20 @@ Hyper Cards is loaded by Hyper as a local plugin. Keep the repository itself in 
 Create the local-plugin directory:
 
 ```sh
-mkdir -p "$HOME/.hyper_plugins/local"
+mkdir -p "$HOME/Library/Application Support/Hyper/.hyper_plugins/local"
 ```
 
 Clone Hyper Cards directly into it:
 
 ```sh
 git clone https://github.com/drabhikroy/HyperCards.git \
-  "$HOME/.hyper_plugins/local/hyper-command-cards"
+  "$HOME/Library/Application Support/Hyper/.hyper_plugins/local/hyper-command-cards"
 ```
 
 After cloning, the plugin should be available at:
 
 ```text
-~/.hyper_plugins/local/hyper-command-cards
+~/Library/Application Support/Hyper/.hyper_plugins/local/hyper-command-cards
 ```
 
 If that path already contains an existing Hyper Cards Git installation, do not clone over it. See **Updating Hyper Cards** below.
@@ -102,7 +119,7 @@ If that path already contains an existing Hyper Cards Git installation, do not c
 If you downloaded the repository as a ZIP instead, extract it and place the extracted HyperCards folder at:
 
 ```text
-~/.hyper_plugins/local/hyper-command-cards
+~/Library/Application Support/Hyper/.hyper_plugins/local/hyper-command-cards
 ```
 
 The final folder must contain `index.js`, `package.json`, `shell/`, `presets/`, and the other repository files directly.
@@ -133,7 +150,7 @@ Restart Hyper if the newly installed font does not appear right away.
 Open:
 
 ```text
-~/.hyper.js
+~/Library/Application Support/Hyper/.hyper.js
 ```
 
 Find the `localPlugins` array and add:
@@ -159,7 +176,7 @@ Hyper Cards belongs in `localPlugins`, not the normal `plugins` array.
 Add this line to `~/.zshrc`:
 
 ```sh
-source "$HOME/.hyper_plugins/local/hyper-command-cards/shell/hyper-command-cards.zsh"
+source "$HOME/Library/Application Support/Hyper/.hyper_plugins/local/hyper-command-cards/shell/hyper-command-cards.zsh"
 ```
 
 Add the line only once.
@@ -178,12 +195,14 @@ Create the configuration folder if needed:
 mkdir -p "$HOME/.config"
 ```
 
-If you do not already have a Starship configuration:
+If you do not already have a Starship configuration, copy the dark preset:
 
 ```sh
 cp presets/starship.toml \
   "$HOME/.config/starship.toml"
 ```
+
+For a light terminal theme, use `presets/starship-light.toml` instead.
 
 If `~/.config/starship.toml` already exists, follow the instructions under **Existing Hyper setup** rather than replacing it.
 
@@ -197,7 +216,7 @@ presets/hyper.js
 
 This file contains the colors, font, cursor, spacing, and terminal settings used with Hyper Cards.
 
-It is a reference configuration and should not replace an existing `~/.hyper.js`.
+It is a reference configuration and should not replace an existing `~/Library/Application Support/Hyper/.hyper.js`.
 
 For a fresh setup, compare the preset with the configuration Hyper created and copy the settings you want.
 
@@ -235,11 +254,11 @@ Run:
 seq 1 20
 ```
 
-Select the `−` control on the card.
+Open **This card**, then choose **Collapse card**.
 
 The output should disappear and the terminal rows it occupied should be reclaimed.
 
-Select `+` to restore the output.
+Open **This card** again and choose **Expand card** to restore the output.
 
 ### 15. Test multiline paste
 
@@ -305,7 +324,7 @@ The tested history controls are:
 
 Hyper Cards uses `⌘R` by default.
 
-If that shortcut conflicts with another setting or you prefer another key, add a custom binding to the `keymaps` section of `~/.hyper.js`.
+If that shortcut conflicts with another setting or you prefer another key, add a custom binding to the `keymaps` section of `~/Library/Application Support/Hyper/.hyper.js`.
 
 For example:
 
@@ -337,8 +356,8 @@ Back up only the files that already exist.
 For Hyper:
 
 ```sh
-[ -f "$HOME/.hyper.js" ] && \
-  cp "$HOME/.hyper.js" "$HOME/.hyper.js.backup"
+[ -f "$HOME/Library/Application Support/Hyper/.hyper.js" ] && \
+  cp "$HOME/Library/Application Support/Hyper/.hyper.js" "$HOME/Library/Application Support/Hyper/.hyper.js.backup"
 ```
 
 For zsh:
@@ -377,24 +396,24 @@ brew install fzf
 If Hyper Cards is not already installed, create Hyper's local-plugin directory:
 
 ```sh
-mkdir -p "$HOME/.hyper_plugins/local"
+mkdir -p "$HOME/Library/Application Support/Hyper/.hyper_plugins/local"
 ```
 
 Then clone the repository directly into it:
 
 ```sh
 git clone https://github.com/drabhikroy/HyperCards.git \
-  "$HOME/.hyper_plugins/local/hyper-command-cards"
+  "$HOME/Library/Application Support/Hyper/.hyper_plugins/local/hyper-command-cards"
 ```
 
-If `~/.hyper_plugins/local/hyper-command-cards` already contains a Hyper Cards Git installation, do not clone it again. See **Updating Hyper Cards** below.
+If `~/Library/Application Support/Hyper/.hyper_plugins/local/hyper-command-cards` already contains a Hyper Cards Git installation, do not clone it again. See **Updating Hyper Cards** below.
 
 ### 4. Add the plugin to Hyper
 
 Open:
 
 ```text
-~/.hyper.js
+~/Library/Application Support/Hyper/.hyper.js
 ```
 
 Find `localPlugins`.
@@ -421,7 +440,7 @@ localPlugins: [
 Add this line to `~/.zshrc` if it is not already present:
 
 ```sh
-source "$HOME/.hyper_plugins/local/hyper-command-cards/shell/hyper-command-cards.zsh"
+source "$HOME/Library/Application Support/Hyper/.hyper_plugins/local/hyper-command-cards/shell/hyper-command-cards.zsh"
 ```
 
 The shell module is loaded directly from the same installation Hyper uses for the local plugin.
@@ -433,7 +452,7 @@ Place the line near the end of `.zshrc`, after any shell setup that should load 
 Compare your existing:
 
 ```text
-~/.hyper.js
+~/Library/Application Support/Hyper/.hyper.js
 ```
 
 with:
@@ -454,13 +473,14 @@ If you already use Starship, compare:
 ~/.config/starship.toml
 ```
 
-with:
+with either:
 
 ```text
 presets/starship.toml
+presets/starship-light.toml
 ```
 
-The supplied preset controls the matching directory, Git, runtime, time, separator, and prompt-marker appearance.
+The supplied presets control the matching directory, Git, runtime, time, separator, and prompt-marker appearance.
 
 You can copy those sections into your existing configuration rather than replacing the file.
 
@@ -508,7 +528,7 @@ The custom key takes precedence over the default.
 If Hyper Cards was installed with Git, update the existing installation rather than cloning it again:
 
 ```sh
-cd "$HOME/.hyper_plugins/local/hyper-command-cards"
+cd "$HOME/Library/Application Support/Hyper/.hyper_plugins/local/hyper-command-cards"
 git pull
 ```
 
@@ -520,7 +540,7 @@ You can confirm the installed version with:
 
 ```sh
 grep '"version"' \
-  "$HOME/.hyper_plugins/local/hyper-command-cards/package.json" \
+  "$HOME/Library/Application Support/Hyper/.hyper_plugins/local/hyper-command-cards/package.json" \
   | head -1
 ```
 
@@ -533,7 +553,7 @@ If Hyper Cards was installed from a ZIP rather than Git, replace the existing in
 Check that the local plugin exists:
 
 ```sh
-ls -la "$HOME/.hyper_plugins/local/hyper-command-cards"
+ls -la "$HOME/Library/Application Support/Hyper/.hyper_plugins/local/hyper-command-cards"
 ```
 
 You should see:
@@ -543,7 +563,7 @@ index.js
 package.json
 ```
 
-Then check that `~/.hyper.js` contains:
+Then check that `~/Library/Application Support/Hyper/.hyper.js` contains:
 
 ```js
 "hyper-command-cards"
@@ -560,7 +580,7 @@ A full terminal clear should remove all visible Hyper Cards elements.
 First, confirm that the current plugin files are in:
 
 ```text
-~/.hyper_plugins/local/hyper-command-cards
+~/Library/Application Support/Hyper/.hyper_plugins/local/hyper-command-cards
 ```
 
 Then quit Hyper completely and reopen it.
@@ -602,7 +622,7 @@ The configurable Hyper Cards shortcut, `⌘R` by default, opens and closes histo
 
 ### The history shortcut conflicts with another shortcut
 
-Change the Hyper Cards binding in `~/.hyper.js`.
+Change the Hyper Cards binding in `~/Library/Application Support/Hyper/.hyper.js`.
 
 For example:
 
@@ -673,7 +693,7 @@ brew install fzf
 Remove the local plugin:
 
 ```sh
-rm -rf "$HOME/.hyper_plugins/local/hyper-command-cards"
+rm -rf "$HOME/Library/Application Support/Hyper/.hyper_plugins/local/hyper-command-cards"
 ```
 
 Remove:
@@ -682,15 +702,15 @@ Remove:
 "hyper-command-cards"
 ```
 
-from the `localPlugins` array in `~/.hyper.js`.
+from the `localPlugins` array in `~/Library/Application Support/Hyper/.hyper.js`.
 
 Remove this line from `~/.zshrc`:
 
 ```sh
-source "$HOME/.hyper_plugins/local/hyper-command-cards/shell/hyper-command-cards.zsh"
+source "$HOME/Library/Application Support/Hyper/.hyper_plugins/local/hyper-command-cards/shell/hyper-command-cards.zsh"
 ```
 
-Remove any custom Hyper Cards entry from the `keymaps` section of `~/.hyper.js`.
+Remove any custom Hyper Cards entry from the `keymaps` section of `~/Library/Application Support/Hyper/.hyper.js`.
 
 Quit and reopen Hyper.
 

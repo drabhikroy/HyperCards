@@ -15,26 +15,72 @@ const SCROLLBAR_TRACK_COLOR = "transparent";
 const SCROLLBAR_THUMB_COLOR = "var(--hcc-scrollbar-thumb, rgba(170, 178, 186, 0.34))";
 
 const OUTPUT_INDENT_COLUMNS = 2;
-const HCC_INDENT_PREFIX =
-  "\x1b]777;hcc;indent;"
+const MAX_CONTROL_SEQUENCE_LENGTH = 64;
+const MAX_OSC_MESSAGE_LENGTH = 512;
+const MAX_OUTPUT_WRAP_MARKERS = 16384;
+const MAX_GROUP_ID_LENGTH = 64;
+const MAX_GROUP_SIZE = 1000;
+const MAX_CURSOR_VALUE = 10000000;
 
-const HCC_OUTPUT_MARKER = "\x1b]777;hcc;output\x07";
-const HCC_DONE_MARKER = "\x1b]777;hcc;done\x07";
-const HCC_SOFT_WRAP_MARKER = "\x1b]777;hcc;softwrap\x07";
-const HCC_PROMPT_MARKER = "\x1b]777;hcc;prompt\x07";
+const HCC_OSC_PREFIX =
+  "\x1b]777;hcc;";
+const HCC_SESSION_PREFIX =
+  `${HCC_OSC_PREFIX}session;`;
+const HCC_SESSION_TOKEN_PATTERN =
+  /^[0-9a-f]{32}$/;
 
-const HCC_MARKERS = [
-  HCC_OUTPUT_MARKER,
-  HCC_DONE_MARKER,
-  HCC_PROMPT_MARKER,
-];
+function isValidSessionToken(
+  token
+) {
+  return HCC_SESSION_TOKEN_PATTERN
+    .test(
+      String(token || "")
+    );
+}
 
-const outputStates = new Map();
+function hccMarker(
+  token,
+  type
+) {
+  if (!isValidSessionToken(token)) {
+    return "";
+  }
 
-function getPartialMarkerSuffix(data) {
+  return `${HCC_OSC_PREFIX}${token};${type}\x07`;
+}
+
+function hccIndentPrefix(
+  token
+) {
+  if (!isValidSessionToken(token)) {
+    return "";
+  }
+
+  return `${HCC_OSC_PREFIX}${token};indent;`;
+}
+
+function getPartialMarkerSuffix(
+  data,
+  state
+) {
   let longest = "";
 
-  for (const marker of HCC_MARKERS) {
+  const token =
+    isValidSessionToken(
+      state && state.sessionToken
+    )
+      ? state.sessionToken
+      : "";
+
+  const markers = token
+    ? [
+        hccMarker(token, "output"),
+        hccMarker(token, "done"),
+        hccMarker(token, "prompt"),
+      ]
+    : [];
+
+  for (const marker of markers) {
     const maxLength = Math.min(
       marker.length - 1,
       data.length
@@ -58,52 +104,48 @@ function getPartialMarkerSuffix(data) {
     }
   }
 
-  const indentStart =
-    data.lastIndexOf(
-      HCC_INDENT_PREFIX[0]
-    );
+  const prefixes = [
+    {
+      value: HCC_SESSION_PREFIX,
+      pattern: /^[0-9a-f]{0,32}$/,
+    },
+  ];
 
-  if (
-    indentStart !== -1
-  ) {
+  if (token) {
+    prefixes.push({
+      value: hccIndentPrefix(token),
+      pattern: /^\d{0,3}$/,
+    });
+  }
+
+  const escapeStart =
+    data.lastIndexOf("\x1b");
+
+  if (escapeStart !== -1) {
     const tail =
-      data.slice(
-        indentStart
-      );
+      data.slice(escapeStart);
 
-    if (
-      HCC_INDENT_PREFIX
-        .startsWith(
-          tail
-        )
-    ) {
-      if (
-        tail.length >
-        longest.length
-      ) {
-        longest =
-          tail;
+    for (const item of prefixes) {
+      if (item.value.startsWith(tail)) {
+        if (tail.length > longest.length) {
+          longest = tail;
+        }
+
+        continue;
       }
-    } else if (
-      tail.startsWith(
-        HCC_INDENT_PREFIX
-      )
-    ) {
+
+      if (!tail.startsWith(item.value)) {
+        continue;
+      }
+
       const remainder =
-        tail.slice(
-          HCC_INDENT_PREFIX.length
-        );
+        tail.slice(item.value.length);
 
       if (
-        /^\d{0,3}$/
-          .test(
-            remainder
-          ) &&
-        tail.length >
-          longest.length
+        item.pattern.test(remainder) &&
+        tail.length > longest.length
       ) {
-        longest =
-          tail;
+        longest = tail;
       }
     }
   }
@@ -111,7 +153,7 @@ function getPartialMarkerSuffix(data) {
   return longest;
 }
 
-  function indentOutput(
+function indentOutput(
     data,
     state
   ) {
@@ -267,6 +309,19 @@ function getPartialMarkerSuffix(data) {
             char;
 
           if (
+            state.controlBuffer.length >
+              MAX_CONTROL_SEQUENCE_LENGTH
+          ) {
+            state.controlMode =
+              null;
+
+            state.controlBuffer =
+              "";
+
+            continue;
+          }
+
+          if (
             /[@-~]/.test(char)
           ) {
             finishCsi(
@@ -378,7 +433,10 @@ function getPartialMarkerSuffix(data) {
             "\r\n";
 
           result +=
-            HCC_SOFT_WRAP_MARKER;
+            hccMarker(
+              state.sessionToken,
+              "softwrap"
+            );
 
         state.column =
           0;
@@ -406,7 +464,7 @@ function getPartialMarkerSuffix(data) {
     return result;
   }
 
-  function createOutputTransformState() {
+function createOutputTransformState() {
     return {
       active: false,
       needsIndent: false,
@@ -419,6 +477,7 @@ function getPartialMarkerSuffix(data) {
       controlBuffer: "",
       controlEscape: false,
       pending: "",
+      sessionToken: null,
     };
   }
 
@@ -432,9 +491,24 @@ function transformTerminalData(
 
   state.pending = "";
 
+  if (!isValidSessionToken(
+    state.sessionToken
+  )) {
+    const sessionProbe =
+      data.match(
+        /\x1b]777;hcc;session;([0-9a-f]{32})\x07/
+      );
+
+    if (sessionProbe) {
+      state.sessionToken =
+        sessionProbe[1];
+    }
+  }
+
   const partial =
     getPartialMarkerSuffix(
-      data
+      data,
+      state
     );
 
   if (partial) {
@@ -454,70 +528,104 @@ function transformTerminalData(
   while (
     position < data.length
   ) {
-    const candidates = [
-      {
-        marker:
-          HCC_OUTPUT_MARKER,
-        type: "output",
-      },
-      {
-        marker:
-          HCC_DONE_MARKER,
-        type: "done",
-      },
-      {
-        marker:
-          HCC_PROMPT_MARKER,
-        type: "prompt",
-      },
-    ]
-      .map((item) => ({
-        ...item,
-        index:
-          data.indexOf(
-            item.marker,
-            position
-          ),
-      }))
-      .filter(
-        (item) =>
-          item.index !== -1
-      )
-      .sort(
-        (a, b) =>
-          a.index - b.index
-      );
+    const candidates = [];
 
-    const indentMatch =
+    const sessionMatch =
       data
-        .slice(
-          position
-        )
+        .slice(position)
         .match(
-          /\x1b]777;hcc;indent;(\d{3})\x07/
+          /\x1b]777;hcc;session;([0-9a-f]{32})\x07/
         );
 
-    if (indentMatch) {
+    if (sessionMatch) {
       candidates.push({
-        marker:
-          indentMatch[0],
-        type:
-          "indent",
-        columns:
-          Number.parseInt(
-            indentMatch[1],
-            10
-          ),
+        marker: sessionMatch[0],
+        type: "session",
+        token: sessionMatch[1],
         index:
           position +
-          indentMatch.index,
+          sessionMatch.index,
       });
-
-      candidates.sort(
-        (a, b) =>
-          a.index - b.index
-      );
     }
+
+    const token =
+      isValidSessionToken(
+        state.sessionToken
+      )
+        ? state.sessionToken
+        : "";
+
+    if (token) {
+      for (
+        const type
+        of [
+          "output",
+          "done",
+          "prompt",
+        ]
+      ) {
+        const marker =
+          hccMarker(
+            token,
+            type
+          );
+
+        const index =
+          data.indexOf(
+            marker,
+            position
+          );
+
+        if (index !== -1) {
+          candidates.push({
+            marker,
+            type,
+            index,
+          });
+        }
+      }
+
+      const indentPrefix =
+        hccIndentPrefix(token);
+
+      const indentIndex =
+        data.indexOf(
+          indentPrefix,
+          position
+        );
+
+      if (indentIndex !== -1) {
+        const indentMatch =
+          data
+            .slice(
+              indentIndex +
+                indentPrefix.length
+            )
+            .match(
+              /^(\d{1,3})\x07/
+            );
+
+        if (indentMatch) {
+          candidates.push({
+            marker:
+              indentPrefix +
+              indentMatch[0],
+            type: "indent",
+            columns:
+              Number.parseInt(
+                indentMatch[1],
+                10
+              ),
+            index: indentIndex,
+          });
+        }
+      }
+    }
+
+    candidates.sort(
+      (a, b) =>
+        a.index - b.index
+    );
 
     if (!candidates.length) {
       const remaining =
@@ -557,6 +665,18 @@ function transformTerminalData(
       nextMarker.marker;
 
     if (
+      nextMarker.type ===
+      "session"
+    ) {
+      if (
+        !isValidSessionToken(
+          state.sessionToken
+        )
+      ) {
+        state.sessionToken =
+          nextMarker.token;
+      }
+    } else if (
       nextMarker.type ===
       "indent"
     ) {
@@ -890,10 +1010,69 @@ function readLogicalLines(
   return result;
 }
 
-function extractCommand(
+function findPromptLineNumber(
   xterm,
   startMarker,
   outputMarker
+) {
+  if (
+    !xterm ||
+    !startMarker ||
+    !outputMarker ||
+    startMarker.isDisposed ||
+    outputMarker.isDisposed
+  ) {
+    return -1;
+  }
+
+  const buffer =
+    xterm.buffer.active;
+
+  let firstContentLine =
+    -1;
+
+  for (
+    let lineNumber =
+      startMarker.line;
+    lineNumber <
+      outputMarker.line;
+    lineNumber++
+  ) {
+    const line =
+      buffer.getLine(
+        lineNumber
+      );
+
+    if (!line) {
+      continue;
+    }
+
+    const text =
+      line.translateToString(
+        true
+      );
+
+    if (
+      firstContentLine === -1 &&
+      text.trim()
+    ) {
+      firstContentLine =
+        lineNumber;
+    }
+
+    if (text.includes("❯")) {
+      return lineNumber;
+    }
+  }
+
+  return firstContentLine;
+}
+
+function extractCommand(
+  xterm,
+  startMarker,
+  outputMarker,
+  promptColumns = 0
 ) {
   if (
     !startMarker ||
@@ -904,10 +1083,19 @@ function extractCommand(
     return "";
   }
 
+  const promptLineNumber =
+    findPromptLineNumber(
+      xterm,
+      startMarker,
+      outputMarker
+    );
+
   const lines = trimBlankLines(
     readLogicalLines(
       xterm,
-      startMarker.line,
+      promptLineNumber >= 0
+        ? promptLineNumber
+        : startMarker.line,
       outputMarker.line
     )
   );
@@ -916,25 +1104,175 @@ function extractCommand(
     return "";
   }
 
-  const promptLine = lines.findIndex(
-    (line) => line.includes("❯")
-  );
+  const promptIndex =
+    lines[0].lastIndexOf(
+      "❯"
+    );
 
-  if (promptLine !== -1) {
-    const firstLine = lines[promptLine];
-    const promptIndex = firstLine.lastIndexOf("❯");
+  if (promptIndex !== -1) {
+    lines[0] =
+      lines[0].slice(
+        promptIndex + 1
+      );
+  } else {
+    const columns =
+      Math.max(
+        0,
+        Math.min(
+          Number(promptColumns) || 0,
+          lines[0].length
+        )
+      );
 
-    lines[promptLine] =
-      firstLine.slice(promptIndex + 1);
-
-    return lines
-      .slice(promptLine)
-      .join("\n")
-      .trim();
+    if (columns > 0) {
+      lines[0] =
+        lines[0].slice(columns);
+    }
   }
 
   return lines.join("\n").trim();
 }
+
+function setTerminalRowText(
+  rowElement,
+  text,
+  columns = null
+) {
+  if (!rowElement) {
+    return;
+  }
+
+  const value =
+    String(text || "");
+
+  let span =
+    rowElement._hccTextSpan;
+
+  if (!span) {
+    span =
+      document
+        .createElement(
+          "span"
+        );
+
+    Object.assign(
+      span.style,
+      {
+        display:
+          "inline-block",
+
+        whiteSpace:
+          "pre",
+
+        transformOrigin:
+          "left center",
+
+        pointerEvents:
+          "none",
+      }
+    );
+
+    rowElement
+      .replaceChildren(
+        span
+      );
+
+    rowElement._hccTextSpan =
+      span;
+  }
+
+  span.textContent =
+    value;
+
+  rowElement._hccText =
+    value;
+
+  rowElement._hccColumns =
+    Number.isFinite(columns)
+      ? Math.max(
+          0,
+          columns
+        )
+      : Array.from(value).length;
+}
+
+
+function fitTerminalRowText(
+  rowElement,
+  cellWidth,
+  maxColumns = null
+) {
+  if (
+    !rowElement ||
+    !rowElement._hccTextSpan ||
+    !Number.isFinite(cellWidth) ||
+    cellWidth <= 0
+  ) {
+    return;
+  }
+
+  const span =
+    rowElement._hccTextSpan;
+
+  span.style.transform =
+    "none";
+
+  const naturalWidth =
+    span
+      .getBoundingClientRect()
+      .width;
+
+  const columns =
+    Number.isFinite(
+      rowElement._hccColumns
+    )
+      ? Math.max(
+          0,
+          rowElement._hccColumns
+        )
+      : Array.from(
+          rowElement._hccText || ""
+        ).length;
+
+  if (
+    !columns ||
+    !naturalWidth
+  ) {
+    return;
+  }
+
+  const terminalWidth =
+    columns *
+    cellWidth;
+
+  const availableWidth =
+    Number.isFinite(
+      maxColumns
+    )
+      ? Math.max(
+          1,
+          maxColumns
+        ) *
+        cellWidth
+      : terminalWidth;
+
+  const targetWidth =
+    Math.min(
+      terminalWidth,
+      availableWidth
+    );
+
+  const scale =
+    targetWidth /
+    naturalWidth;
+
+  span.style.transform =
+    Number.isFinite(scale) &&
+    scale > 0
+      ? `scaleX(${scale})`
+      : "none";
+}
+
 
 function extractWrappedCommandRows(
   xterm,
@@ -954,38 +1292,12 @@ function extractWrappedCommandRows(
   const buffer =
     xterm.buffer.active;
 
-  let promptLine =
-    -1;
-
-  for (
-    let lineNumber =
-      startMarker.line;
-    lineNumber <
-      outputMarker.line;
-    lineNumber++
-  ) {
-    const line =
-      buffer.getLine(
-        lineNumber
-      );
-
-    if (!line) {
-      continue;
-    }
-
-    if (
-      line
-        .translateToString(
-          true
-        )
-        .includes("❯")
-    ) {
-      promptLine =
-        lineNumber;
-
-      break;
-    }
-  }
+  const promptLine =
+    findPromptLineNumber(
+      xterm,
+      startMarker,
+      outputMarker
+    );
 
   if (promptLine === -1) {
     return [];
@@ -1009,15 +1321,53 @@ function extractWrappedCommandRows(
       continue;
     }
 
+    const text =
+      line.translateToString(
+        true
+      );
+
+    let columns =
+      0;
+
+    for (
+      let column = 0;
+      column < xterm.cols;
+      column++
+    ) {
+      const cell =
+        line.getCell(
+          column
+        );
+
+      if (
+        !cell ||
+        !cell.getChars() ||
+        /^\s+$/.test(
+          cell.getChars()
+        )
+      ) {
+        continue;
+      }
+
+      columns =
+        Math.max(
+          columns,
+          column +
+            Math.max(
+              1,
+              cell.getWidth()
+            )
+        );
+    }
+
     rows.push({
       row:
         lineNumber -
         startMarker.line,
 
-      text:
-        line.translateToString(
-          true
-        ),
+      text,
+
+      columns,
     });
   }
 
@@ -1036,7 +1386,8 @@ function extractWrappedCommandRows(
 function getCommandIndentColumns(
   xterm,
   startMarker,
-  outputMarker
+  outputMarker,
+  fallbackColumns = 0
 ) {
   if (
     !xterm ||
@@ -1116,14 +1467,21 @@ function getCommandIndentColumns(
     }
   }
 
-  return 0;
+  return Math.max(
+    0,
+    Math.min(
+      Number(fallbackColumns) || 0,
+      xterm.cols
+    )
+  );
 }
 
 
 function extractOutput(
   xterm,
   outputMarker,
-  endMarker
+  endMarker,
+  indentColumns = OUTPUT_INDENT_COLUMNS
 ) {
   if (
     !outputMarker ||
@@ -1138,7 +1496,13 @@ function extractOutput(
 
   const pad =
     " ".repeat(
-      OUTPUT_INDENT_COLUMNS
+      Math.max(
+        0,
+        Math.min(
+          999,
+          Number(indentColumns) || 0
+        )
+      )
     );
 
   const lines =
@@ -1722,6 +2086,129 @@ function applyThemeVariables(
       : "dark";
 }
 
+function createHyperCardsMenuIcon() {
+  const namespace =
+    "http://www.w3.org/2000/svg";
+
+  const svg =
+    document.createElementNS(
+      namespace,
+      "svg"
+    );
+
+  svg.setAttribute(
+    "aria-hidden",
+    "true"
+  );
+  svg.setAttribute(
+    "viewBox",
+    "8 10 996 1517"
+  );
+  svg.setAttribute("width", "12");
+  svg.setAttribute("height", "18");
+
+  const outer =
+    document.createElementNS(
+      namespace,
+      "path"
+    );
+  outer.setAttribute(
+    "fill",
+    "currentColor"
+  );
+  outer.setAttribute(
+    "d",
+    "M 961 18 L 601 197 L 681 231 L 354 384 L 537 429 L 153 669 L 390 666 L 50 936 L 244 945 L 37 1145 L 203 1147 L 18 1518 L 365 1385 L 294 1344 L 563 1236 L 455 1196 L 805 1017 L 601 981 L 940 753 L 683 742 L 974 538 L 741 483 L 995 261 L 826 277 Z"
+  );
+
+  const inner =
+    document.createElementNS(
+      namespace,
+      "path"
+    );
+  inner.setAttribute(
+    "fill",
+    "var(--hcc-background, #212121)"
+  );
+  inner.setAttribute(
+    "d",
+    "M 884 91 L 691 189 L 773 213 L 773 230 L 449 376 L 645 408 L 269 641 L 419 621 L 489 627 L 385 726 L 143 909 L 333 901 L 118 1118 L 268 1102 L 90 1445 L 272 1375 L 205 1340 L 454 1237 L 358 1198 L 696 1037 L 509 1019 L 497 1001 L 847 777 L 577 789 L 566 776 L 879 556 L 649 503 L 880 306 L 757 315 Z"
+  );
+
+  svg.appendChild(outer);
+  svg.appendChild(inner);
+
+  return svg;
+}
+
+function createSearchIcon() {
+  const namespace =
+    "http://www.w3.org/2000/svg";
+
+  const svg =
+    document.createElementNS(
+      namespace,
+      "svg"
+    );
+
+  svg.setAttribute(
+    "aria-hidden",
+    "true"
+  );
+  svg.setAttribute(
+    "viewBox",
+    "0 0 16 16"
+  );
+  svg.setAttribute("width", "1em");
+  svg.setAttribute("height", "1em");
+
+  const circle =
+    document.createElementNS(
+      namespace,
+      "circle"
+    );
+  circle.setAttribute("cx", "6.5");
+  circle.setAttribute("cy", "6.5");
+  circle.setAttribute("r", "4.25");
+  circle.setAttribute("fill", "none");
+  circle.setAttribute(
+    "stroke",
+    "currentColor"
+  );
+  circle.setAttribute(
+    "stroke-width",
+    "1.5"
+  );
+
+  const handle =
+    document.createElementNS(
+      namespace,
+      "path"
+    );
+  handle.setAttribute(
+    "d",
+    "M9.7 9.7 13.5 13.5"
+  );
+  handle.setAttribute("fill", "none");
+  handle.setAttribute(
+    "stroke",
+    "currentColor"
+  );
+  handle.setAttribute(
+    "stroke-width",
+    "1.5"
+  );
+  handle.setAttribute(
+    "stroke-linecap",
+    "round"
+  );
+
+  svg.appendChild(circle);
+  svg.appendChild(handle);
+
+  return svg;
+}
+
 function applyButtonBase(
   button
 ) {
@@ -1824,6 +2311,9 @@ const HCC_CURRENT_CARD_HIGHLIGHT_KEY =
 const HCC_COMMAND_GROUP_HIGHLIGHT_KEY =
   "hyper-cards.command-group-highlight";
 
+const HCC_SHOW_COMMENT_LINES_KEY =
+  "hyper-cards.show-comment-lines";
+
 
 function readHccBooleanPreference(
   key
@@ -1855,6 +2345,41 @@ function writeHccBooleanPreference(
   } catch {}
 }
 
+
+function disconnectObserver(
+  observer
+) {
+  try {
+    if (
+      observer &&
+      typeof observer.disconnect ===
+        "function"
+    ) {
+      observer.disconnect();
+    }
+  } catch {}
+}
+
+function disposeMarkers(
+  markers
+) {
+  if (!Array.isArray(markers)) {
+    return;
+  }
+
+  for (const marker of markers) {
+    try {
+      if (
+        marker &&
+        !marker.isDisposed &&
+        typeof marker.dispose ===
+          "function"
+      ) {
+        marker.dispose();
+      }
+    } catch {}
+  }
+}
 
 function createCopyControl(
   card
@@ -2636,7 +3161,7 @@ function createCopyControl(
 
   if (
     card &&
-    card.useActionsMenu
+    card.useScopeMenu
   ) {
     copyButton.style.display =
       "none";
@@ -2766,18 +3291,21 @@ function createCopyControl(
         );
 
 
-        new MutationObserver(
-          () => {
-            card.currentCardMenuOpen =
-              menuButton
-                .getAttribute(
-                  "aria-expanded"
-                ) ===
-              "true";
+        const currentCardObserver =
+          new MutationObserver(
+            () => {
+              card.currentCardMenuOpen =
+                menuButton
+                  .getAttribute(
+                    "aria-expanded"
+                  ) ===
+                "true";
 
-            refreshCurrentCardEmphasis();
-          }
-        ).observe(
+              refreshCurrentCardEmphasis();
+            }
+          );
+
+        currentCardObserver.observe(
           menuButton,
           {
             attributes:
@@ -2789,6 +3317,8 @@ function createCopyControl(
           }
         );
 
+        card.currentCardObserver =
+          currentCardObserver;
 
         card.refreshCurrentCardEmphasis =
           refreshCurrentCardEmphasis;
@@ -3283,6 +3813,9 @@ exports.decorateTerm =
         this.outputTransformState =
           createOutputTransformState();
 
+        this.sessionToken =
+          null;
+
         this.originalXtermWrite =
           null;
 
@@ -3339,6 +3872,12 @@ exports.decorateTerm =
 
         this.cardsMenuPanel =
           null;
+
+        this.cardsMenuShowCommentLinesAction =
+          null;
+
+        this.commentModeSynced =
+          false;
 
         this.pendingGroup =
           null;
@@ -3476,6 +4015,13 @@ exports.decorateTerm =
         this
           .clearLiveWrapPresentation();
 
+        disposeMarkers(
+          this.outputWrapMarkers
+        );
+
+        this.outputWrapMarkers =
+          [];
+
         if (this.viewportWheelElement) {
           this.viewportWheelElement
             .removeEventListener(
@@ -3570,6 +4116,17 @@ exports.decorateTerm =
         }
 
         for (
+          const group
+          of this.commandGroups.values()
+        ) {
+          disconnectObserver(
+            group.groupScopeObserver
+          );
+        }
+
+        this.commandGroups.clear();
+
+        for (
           const disposable
           of [
             this
@@ -3608,6 +4165,10 @@ exports.decorateTerm =
           const card
           of this.cards
         ) {
+          disconnectObserver(
+            card.currentCardObserver
+          );
+
           try {
             card.element
               .remove();
@@ -3915,8 +4476,9 @@ exports.decorateTerm =
         trigger.type =
           "button";
 
-        trigger.innerHTML =
-          '<svg aria-hidden="true" viewBox="8 10 996 1517" width="12" height="18"><path fill="currentColor" d="M 961 18 L 601 197 L 681 231 L 354 384 L 537 429 L 153 669 L 390 666 L 50 936 L 244 945 L 37 1145 L 203 1147 L 18 1518 L 365 1385 L 294 1344 L 563 1236 L 455 1196 L 805 1017 L 601 981 L 940 753 L 683 742 L 974 538 L 741 483 L 995 261 L 826 277 Z"/><path fill="var(--hcc-background, #212121)" d="M 884 91 L 691 189 L 773 213 L 773 230 L 449 376 L 645 408 L 269 641 L 419 621 L 489 627 L 385 726 L 143 909 L 333 901 L 118 1118 L 268 1102 L 90 1445 L 272 1375 L 205 1340 L 454 1237 L 358 1198 L 696 1037 L 509 1019 L 497 1001 L 847 777 L 577 789 L 566 776 L 879 556 L 649 503 L 880 306 L 757 315 Z"/></svg>';
+        trigger.appendChild(
+          createHyperCardsMenuIcon()
+        );
 
         trigger.title =
           "Hyper Cards";
@@ -3982,18 +4544,11 @@ exports.decorateTerm =
 
         panel.setAttribute(
           "aria-label",
-          "Card actions"
+          "Card controls"
         );
 
 
-        /*
-         * The Highlight submenu is allowed to extend beyond
-         * the main menu. Do not turn that overflow into
-         * scrollbars or clip the flyout.
-         */
-        const hccMainMenuOverflowFix =
-          true;
-
+        /* Keep the Highlight flyout visible outside the main menu. */
         Object.assign(
           panel.style,
           {
@@ -4137,29 +4692,31 @@ exports.decorateTerm =
             button.hccSetMenuLabel =
               (nextLabel) => {
                 const icons = {
-                  "Search cards":
+                  "Search":
                     "⌕",
 
-                  "Select cards":
+                  "Select":
                     "○",
 
                   "Stop selecting":
                     "×",
 
-                  "Collapse all":
+                  "Collapse":
                     "−",
 
-                  "Expand all":
+                  "Expand":
                     "+",
                 };
 
                 if (
                   nextLabel ===
-                  "Search cards"
+                  "Search"
                 ) {
-                  icon.innerHTML =
-                    '<svg aria-hidden="true" viewBox="0 0 16 16" width="1em" height="1em"><circle cx="6.5" cy="6.5" r="4.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M9.7 9.7 13.5 13.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+                  icon.replaceChildren(
+                    createSearchIcon()
+                  );
                 } else {
+                  icon.replaceChildren();
                   icon.textContent =
                     icons[nextLabel] ||
                     "·";
@@ -4245,7 +4802,7 @@ exports.decorateTerm =
           };
 
         addAction(
-          "Search cards",
+          "Search",
           () => {
             this
               .openCardSearch();
@@ -4254,7 +4811,7 @@ exports.decorateTerm =
 
         const selectCardsAction =
           addAction(
-            "Select cards",
+            "Select",
             (event) => {
               if (
                 this.selectionMode
@@ -4277,7 +4834,7 @@ exports.decorateTerm =
 
         const collapseCardsAction =
           addAction(
-            "Collapse all",
+            "Collapse",
             () => {
               const cards =
                 this.cards.filter(
@@ -4301,6 +4858,48 @@ exports.decorateTerm =
                 );
             }
           );
+
+        const showCommentLinesAction =
+          addAction(
+            "Comments",
+            () => {
+              const enabled =
+                !readHccBooleanPreference(
+                  HCC_SHOW_COMMENT_LINES_KEY
+                );
+
+              writeHccBooleanPreference(
+                HCC_SHOW_COMMENT_LINES_KEY,
+                enabled
+              );
+
+              this
+                .syncCommentModeToShell();
+
+              this
+                .updateCardsMenuActions();
+            }
+          );
+
+        showCommentLinesAction
+          .setAttribute(
+            "role",
+            "menuitemcheckbox"
+          );
+
+        if (
+          showCommentLinesAction
+            .hccMenuIcon
+        ) {
+          showCommentLinesAction
+            .hccMenuIcon
+            .textContent =
+              "";
+        }
+
+        this.cardsMenuShowCommentLinesAction =
+          showCommentLinesAction;
+
 
         const highlightAction =
           addAction(
@@ -4470,11 +5069,7 @@ exports.decorateTerm =
         );
 
 
-        /*
-         * addAction() already placed Highlight in the panel.
-         * Replace that position with a row that owns both the
-         * trigger and its flyout.
-         */
+        /* Highlight uses a row that owns both its trigger and flyout. */
         panel.insertBefore(
           highlightRow,
           highlightAction
@@ -4755,10 +5350,7 @@ exports.decorateTerm =
           );
 
 
-        /*
-         * addAction() initially appends these to the main
-         * menu. Move them into Highlight's flyout.
-         */
+        /* Highlight-specific controls live inside the flyout. */
         highlightPanel
           .appendChild(
             currentCardHighlightAction
@@ -4969,6 +5561,36 @@ exports.decorateTerm =
         }
 
 
+        const showCommentLines =
+          readHccBooleanPreference(
+            HCC_SHOW_COMMENT_LINES_KEY
+          );
+
+        if (
+          this
+            .cardsMenuShowCommentLinesAction
+        ) {
+          const action =
+            this
+              .cardsMenuShowCommentLinesAction;
+
+          action.setAttribute(
+            "aria-checked",
+            showCommentLines
+              ? "true"
+              : "false"
+          );
+
+          if (action.hccMenuIcon) {
+            action.hccMenuIcon
+              .textContent =
+                showCommentLines
+                  ? "✓"
+                  : "";
+          }
+        }
+
+
         if (
           this.cardsMenuSelectAction
         ) {
@@ -4976,7 +5598,7 @@ exports.decorateTerm =
             .hccSetMenuLabel(
               this.selectionMode
                 ? "Stop selecting"
-                : "Select cards"
+                : "Select"
             );
         }
 
@@ -5002,8 +5624,8 @@ exports.decorateTerm =
           this.cardsMenuCollapseAction
             .hccSetMenuLabel(
               allCollapsed
-                ? "Expand all"
-                : "Collapse all"
+                ? "Expand"
+                : "Collapse"
             );
         }
       }
@@ -5343,7 +5965,7 @@ exports.decorateTerm =
             );
 
         label.textContent =
-          "Search cards";
+          "Search";
 
         Object.assign(
           label.style,
@@ -8268,8 +8890,8 @@ copyCard: {
         if (
           !group.groupScopeControl
         ) {
-          const groupActionCard = {
-            useActionsMenu:
+          const groupScopeCard = {
+            useScopeMenu:
               true,
 
             menuLabel:
@@ -8334,7 +8956,7 @@ copyCard: {
 
           const groupControl =
             createCopyControl(
-              groupActionCard
+              groupScopeCard
             );
 
 
@@ -8425,17 +9047,14 @@ copyCard: {
           }
 
 
-          group.groupActionCard =
-            groupActionCard;
+          group.groupScopeCard =
+            groupScopeCard;
 
           group.groupScopeControl =
             groupControl;
 
           group.groupScopeHostCard =
             null;
-
-          group.groupScopeWidth =
-            0;
 
           group.groupScopeHover =
             false;
@@ -8444,9 +9063,6 @@ copyCard: {
             false;
 
 
-          /*
-           * Group emphasis.
-           */
           const setGroupEmphasis =
             (active) => {
               const members =
@@ -8759,13 +9375,7 @@ copyCard: {
         }
 
 
-        /*
-         * Always choose the earliest card in the group as the
-         * initial host.
-         *
-         * This corrects registration order differences that
-         * previously put All x cards on card 3.
-         */
+        /* Use the earliest card in the group as the initial host. */
         const ordered =
           (group.cards || [])
             .filter(
@@ -8854,9 +9464,9 @@ copyCard: {
 
 
           if (
-            group.groupActionCard
+            group.groupScopeCard
           ) {
-            group.groupActionCard
+            group.groupScopeCard
               .element =
                 first.element;
           }
@@ -8868,72 +9478,7 @@ copyCard: {
          * This card therefore keeps the same horizontal
          * position as All x cards moves.
          */
-        const applyReservedWidth =
-          () => {
-            const control =
-              group.groupScopeControl;
 
-            if (!control) {
-              return;
-            }
-
-
-            let width =
-              Number(
-                group.groupScopeWidth
-              ) || 0;
-
-
-            try {
-              const measured =
-                Math.ceil(
-                  control
-                    .getBoundingClientRect()
-                    .width
-                );
-
-
-              if (measured > 0) {
-                width =
-                  measured;
-
-                group.groupScopeWidth =
-                  measured;
-              }
-            } catch {}
-
-
-            if (width <= 0) {
-              return;
-            }
-
-
-            for (
-              const item
-              of group.cards || []
-            ) {
-              if (
-                !item ||
-                !item.scopeDock
-              ) {
-                continue;
-              }
-
-
-              item.scopeDock
-                .style
-                .marginRight =
-                  `${width + 4}px`;
-            }
-          };
-
-
-        applyReservedWidth();
-
-
-        requestAnimationFrame(
-          applyReservedWidth
-        );
       }
 
       setCommandGroupCollapsed(
@@ -9131,6 +9676,10 @@ copyCard: {
             cards;
 
           if (!cards.length) {
+            disconnectObserver(
+              group.groupScopeObserver
+            );
+
             if (
               group.groupScopeControl
             ) {
@@ -9192,6 +9741,22 @@ copyCard: {
             null;
         }
 
+        disposeMarkers(
+          this.outputWrapMarkers
+        );
+
+        this.outputWrapMarkers =
+          [];
+
+        for (
+          const group
+          of this.commandGroups.values()
+        ) {
+          disconnectObserver(
+            group.groupScopeObserver
+          );
+        }
+
         this.commandGroups
           .clear();
 
@@ -9214,6 +9779,10 @@ copyCard: {
           const card
           of this.cards
         ) {
+          disconnectObserver(
+            card.currentCardObserver
+          );
+
           try {
             card.element
               .remove();
@@ -9358,53 +9927,172 @@ copyCard: {
         );
       }
 
+      syncCommentModeToShell() {
+        const showComments =
+          readHccBooleanPreference(
+            HCC_SHOW_COMMENT_LINES_KEY
+          );
+
+        const sequence =
+          showComments
+            ? "\x1b[777;1~"
+            : "\x1b[777;2~";
+
+        try {
+          if (
+            this.props &&
+            typeof this.props.onData ===
+              "function"
+          ) {
+            this.props.onData(
+              sequence
+            );
+          }
+        } catch {}
+      }
+
+
       handleOsc(
         data
       ) {
         const message =
           String(data);
 
-
         if (
-          message.startsWith(
-            "hcc;cursor;"
+          !message.startsWith(
+            "hcc;"
           )
         ) {
-          const parts =
-            message.split(";");
+          return false;
+        }
 
-          const parsePart =
-            (index) => {
-              const value =
-                Number.parseInt(
-                  parts[index],
-                  10
-                );
+        if (
+          message.length >
+            MAX_OSC_MESSAGE_LENGTH
+        ) {
+          return true;
+        }
 
-              return Number.isFinite(
-                value
-              )
-                ? Math.max(
-                    0,
-                    value
+        const sessionMatch =
+          message.match(
+            /^hcc;session;([0-9a-f]{32})$/
+          );
+
+        if (sessionMatch) {
+          if (!this.sessionToken) {
+            this.sessionToken =
+              sessionMatch[1];
+          }
+
+          return true;
+        }
+
+        if (
+          !isValidSessionToken(
+            this.sessionToken
+          )
+        ) {
+          return true;
+        }
+
+        const prefix =
+          `hcc;${this.sessionToken};`;
+
+        if (!message.startsWith(prefix)) {
+          return true;
+        }
+
+        const payload =
+          message.slice(
+            prefix.length
+          );
+
+        const hasStartMarker =
+          Boolean(
+            this.startMarker &&
+            !this.startMarker
+              .isDisposed
+          );
+
+        const executing =
+          Boolean(
+            hasStartMarker &&
+            this.outputMarker &&
+            !this.outputMarker
+              .isDisposed
+          );
+
+        const awaitingOutput =
+          hasStartMarker &&
+          !executing;
+
+        const cursorMatch =
+          payload.match(
+            /^cursor;(\d+);(\d+);(\d+);(\d+);(\d+)$/
+          );
+
+        if (cursorMatch) {
+          if (!awaitingOutput) {
+            return true;
+          }
+
+          const values =
+            cursorMatch
+              .slice(1)
+              .map(
+                (part) =>
+                  Number.parseInt(
+                    part,
+                    10
                   )
-                : null;
-            };
+              );
+
+          if (
+            values.some(
+              (value) =>
+                !Number.isSafeInteger(
+                  value
+                ) ||
+                value < 0 ||
+                value >
+                  MAX_CURSOR_VALUE
+            )
+          ) {
+            return true;
+          }
+
+          const [
+            cursorOffset,
+            bufferLength,
+            bufferLines,
+            cursorLine,
+            cursorColumn,
+          ] = values;
+
+          if (
+            bufferLines < 1 ||
+            cursorOffset >
+              bufferLength ||
+            cursorLine >=
+              bufferLines
+          ) {
+            return true;
+          }
 
           this.liveCursorOffset =
-            parsePart(2);
+            cursorOffset;
 
           this.liveBufferLength =
-            parsePart(3);
+            bufferLength;
 
           this.liveBufferLines =
-            parsePart(4);
+            bufferLines;
 
           this.liveCursorLine =
-            parsePart(5);
+            cursorLine;
 
           this.liveCursorColumn =
-            parsePart(6);
+            cursorColumn;
 
           this
             .scheduleLiveWrapPresentation();
@@ -9412,71 +10100,71 @@ copyCard: {
           return true;
         }
 
-        if (
-          message.startsWith(
-            "hcc;indent;"
-          )
-        ) {
-          const indentColumns =
-            Number.parseInt(
-              message.split(
-                ";"
-              )[2],
-              10
-            );
+        const indentMatch =
+          payload.match(
+            /^indent;(\d{1,3})$/
+          );
+
+        if (indentMatch) {
+          if (!awaitingOutput) {
+            return true;
+          }
 
           this.outputIndentColumns =
-            Number.isFinite(
-              indentColumns
-            )
-              ? Math.max(
-                  0,
-                  Math.min(
-                    999,
-                    indentColumns
-                  )
+            Math.max(
+              0,
+              Math.min(
+                999,
+                Number.parseInt(
+                  indentMatch[1],
+                  10
                 )
-              : OUTPUT_INDENT_COLUMNS;
+              )
+            );
 
           return true;
         }
 
-        if (
-          message.startsWith(
-            "hcc;group;"
-          )
-        ) {
-          const parts =
-            message.split(
-              ";"
-            );
+        const groupMatch =
+          payload.match(
+            /^group;([A-Za-z0-9._-]+);(\d+);(\d+)$/
+          );
+
+        if (groupMatch) {
+          if (!awaitingOutput) {
+            return true;
+          }
 
           const id =
-            parts[2] || "";
+            groupMatch[1];
 
           const groupIndex =
             Number.parseInt(
-              parts[3],
+              groupMatch[2],
               10
             );
 
           const total =
             Number.parseInt(
-              parts[4],
+              groupMatch[3],
               10
             );
 
           this.pendingGroup =
             (
-              id &&
-              Number.isFinite(
+              id.length <=
+                MAX_GROUP_ID_LENGTH &&
+              Number.isSafeInteger(
                 groupIndex
               ) &&
-              Number.isFinite(
+              Number.isSafeInteger(
                 total
               ) &&
               groupIndex > 0 &&
-              total > 1
+              total > 1 &&
+              groupIndex <= total &&
+              total <=
+                MAX_GROUP_SIZE
             )
               ? {
                   id,
@@ -9489,10 +10177,23 @@ copyCard: {
           return true;
         }
 
-        if (
-          message ===
-          "hcc;prompt"
-        ) {
+        if (payload === "ready") {
+          if (!this.commentModeSynced) {
+            this.commentModeSynced =
+              true;
+
+            this
+              .syncCommentModeToShell();
+          }
+
+          return true;
+        }
+
+        if (payload === "prompt") {
+          if (executing) {
+            return true;
+          }
+
           this.liveCursorOffset =
             null;
 
@@ -9507,7 +10208,6 @@ copyCard: {
 
           this.liveCursorColumn =
             null;
-
 
           this
             .clearLiveWrapPresentation();
@@ -9572,41 +10272,52 @@ copyCard: {
           return true;
         }
 
-        if (
-          message ===
-            "hcc;softwrap"
-        ) {
-          if (this.xterm) {
-            const marker =
-              this.xterm
-                .registerMarker(
-                  0
-                );
+        if (payload === "softwrap") {
+          if (
+            !executing ||
+            !this.xterm
+          ) {
+            return true;
+          }
 
-            if (marker) {
-              if (
-                !Array.isArray(
-                  this.outputWrapMarkers
-                )
-              ) {
-                this.outputWrapMarkers =
-                  [];
-              }
-
+          if (
+            Array.isArray(
               this.outputWrapMarkers
-                .push(
-                  marker
-                );
+            ) &&
+            this.outputWrapMarkers.length >=
+              MAX_OUTPUT_WRAP_MARKERS
+          ) {
+            return true;
+          }
+
+          const marker =
+            this.xterm
+              .registerMarker(
+                0
+              );
+
+          if (marker) {
+            if (
+              !Array.isArray(
+                this.outputWrapMarkers
+              )
+            ) {
+              this.outputWrapMarkers =
+                [];
             }
+
+            this.outputWrapMarkers
+              .push(marker);
           }
 
           return true;
         }
 
-        if (
-          message ===
-          "hcc;output"
-        ) {
+        if (payload === "output") {
+          if (!awaitingOutput) {
+            return true;
+          }
+
           this.markOutput();
 
           this
@@ -9615,22 +10326,27 @@ copyCard: {
           return true;
         }
 
-        if (
-          message.startsWith(
-            "hcc;result;"
-          )
-        ) {
+        const resultMatch =
+          payload.match(
+            /^result;(\d{1,3})$/
+          );
+
+        if (resultMatch) {
+          if (!executing) {
+            return true;
+          }
+
           const status =
             Number.parseInt(
-              message.split(
-                ";"
-              )[2],
+              resultMatch[1],
               10
             );
 
-          if (
-            this.finishTimer
-          ) {
+          if (status > 255) {
+            return true;
+          }
+
+          if (this.finishTimer) {
             clearTimeout(
               this.finishTimer
             );
@@ -9644,27 +10360,22 @@ copyCard: {
               false
             );
 
-          this.finishCard(
-            Number.isFinite(status)
-              ? status
-              : null
-          );
+          this.finishCard(status);
 
           return true;
         }
 
-        if (
-          message ===
-          "hcc;done"
-        ) {
+        if (payload === "done") {
+          if (!executing) {
+            return true;
+          }
+
           this
             .setLiveRedraw(
               false
             );
 
-          if (
-            this.finishTimer
-          ) {
+          if (this.finishTimer) {
             clearTimeout(
               this.finishTimer
             );
@@ -9686,7 +10397,7 @@ copyCard: {
           return true;
         }
 
-        return false;
+        return true;
       }
 
       startCard() {
@@ -9746,25 +10457,9 @@ copyCard: {
             null;
         }
 
-        if (
-          Array.isArray(
-            this.outputWrapMarkers
-          )
-        ) {
-          for (
-            const marker
-            of this.outputWrapMarkers
-          ) {
-            try {
-              if (
-                marker &&
-                !marker.isDisposed
-              ) {
-                marker.dispose();
-              }
-            } catch {}
-          }
-        }
+        disposeMarkers(
+          this.outputWrapMarkers
+        );
 
         this.outputWrapMarkers =
           [];
@@ -10054,7 +10749,8 @@ copyCard: {
           extractCommand(
             this.xterm,
             this.startMarker,
-            this.outputMarker
+            this.outputMarker,
+            this.outputIndentColumns
           );
 
         const wrappedCommandRows =
@@ -10068,7 +10764,8 @@ copyCard: {
           extractOutput(
             this.xterm,
             this.outputMarker,
-            endMarker
+            endMarker,
+            this.outputIndentColumns
           );
 
         const element =
@@ -10136,7 +10833,8 @@ copyCard: {
             getCommandIndentColumns(
               this.xterm,
               this.startMarker,
-              this.outputMarker
+              this.outputMarker,
+              this.outputIndentColumns
             ),
 
           outputIndentColumns:
@@ -10271,8 +10969,11 @@ copyCard: {
                     "div"
                   );
 
-              rowElement.textContent =
-                wrappedRow.text;
+              setTerminalRowText(
+                rowElement,
+                wrappedRow.text,
+                wrappedRow.columns
+              );
 
               rowElement._hccRow =
                 wrappedRow.row;
@@ -10480,6 +11181,9 @@ copyCard: {
           }
         );
 
+        controls.style.paddingRight =
+          "112px";
+
         const statusLabel =
           document
             .createElement(
@@ -10654,7 +11358,7 @@ copyCard: {
         card.statusLabel =
           statusLabel;
 
-        card.useActionsMenu =
+        card.useScopeMenu =
           true;
 
         const copyControl =
@@ -10868,35 +11572,6 @@ copyCard: {
                 .toggleCardSelection(
                   card
                 );
-            }
-          );
-
-        controls
-          .addEventListener(
-            "mouseenter",
-            () => {
-              selectButton
-                .style
-                .opacity =
-                  "1";
-            }
-          );
-
-        controls
-          .addEventListener(
-            "mouseleave",
-            () => {
-              if (
-                !this.selectedCards
-                  .size &&
-                !this.selectedCards
-                  .has(card)
-              ) {
-                selectButton
-                  .style
-                  .opacity =
-                    "1";
-              }
             }
           );
 
@@ -11668,7 +12343,8 @@ copyCard: {
           getCommandIndentColumns(
             this.xterm,
             card.start,
-            card.output
+            card.output,
+            card.outputIndentColumns
           );
 
         const rows =
@@ -11705,8 +12381,8 @@ copyCard: {
           );
 
         /*
-         * Opaque version of the card surface. It masks xterm's
-         * original wrapped text without creating a darker strip.
+         * Match the finished-row background to the card surface
+         * while covering xterm's underlying wrapped text.
          */
         const rowBackground =
           hccRgb(
@@ -11772,7 +12448,7 @@ copyCard: {
 
         /*
          * Rebuild every row from xterm's current reflowed
-         * buffer rather than retaining the old physical rows.
+         * buffer rather than retaining stale physical rows.
          */
         rows.forEach(
           (wrappedRow, index) => {
@@ -11781,8 +12457,11 @@ copyCard: {
                 index
               ];
 
-            rowElement.textContent =
-              wrappedRow.text;
+            setTerminalRowText(
+              rowElement,
+              wrappedRow.text,
+              wrappedRow.columns
+            );
 
             rowElement._hccRow =
               wrappedRow.row;
@@ -11883,7 +12562,7 @@ copyCard: {
         /*
          * Keep xterm's current physical wrap groups for vertical
          * placement and card height. Paint their text from the
-         * clean logical output instead of the old buffer contents.
+         * clean logical output instead of stale buffer contents.
          */
         const physicalGroups =
           [];
@@ -11933,17 +12612,6 @@ copyCard: {
               "\n"
             );
 
-        const contentColumns =
-          Math.max(
-            1,
-            (
-              Number(
-                this.xterm.cols
-              ) || 1
-            ) -
-              outputIndent * 2
-          );
-
         physicalGroups.forEach(
           (
             group,
@@ -11956,6 +12624,51 @@ copyCard: {
                     groupIndex
                   ]
                 : "";
+
+            const terminalColumns =
+              Math.max(
+                1,
+                Number(
+                  this.xterm.cols
+                ) || 1
+              );
+
+            const availableRows =
+              Math.max(
+                1,
+                group.length
+              );
+
+            const requiredColumns =
+              Math.max(
+                1,
+                Math.ceil(
+                  logicalText.length /
+                    availableRows
+                )
+              );
+
+            const effectiveIndent =
+              Math.max(
+                0,
+                Math.min(
+                  outputIndent,
+                  Math.floor(
+                    (
+                      terminalColumns -
+                        requiredColumns
+                    ) /
+                      2
+                  )
+                )
+              );
+
+            const contentColumns =
+              Math.max(
+                1,
+                terminalColumns -
+                  effectiveIndent * 2
+              );
 
             let offset =
               0;
@@ -11990,6 +12703,14 @@ copyCard: {
                     physicalRow.row,
 
                   text,
+
+                  columns:
+                    Array.from(
+                      text
+                    ).length,
+
+                  indentColumns:
+                    effectiveIndent,
                 });
               }
             );
@@ -12059,14 +12780,20 @@ copyCard: {
                 index
               ];
 
-            rowElement.textContent =
-              outputRow.text;
+            setTerminalRowText(
+              rowElement,
+              outputRow.text,
+              outputRow.columns
+            );
 
             rowElement._hccRow =
               outputRow.row;
 
             rowElement._hccKind =
               "output";
+
+            rowElement._hccIndentColumns =
+              outputRow.indentColumns;
 
             Object.assign(
               rowElement.style,
@@ -12541,7 +13268,7 @@ copyCard: {
           /*
            * Headers near the viewport are eligible. The extra
            * padding lets the next/previous card become a
-           * candidate before the old host is completely gone.
+           * candidate before the current host is completely gone.
            */
           const candidates =
             cards.filter(
@@ -12667,9 +13394,9 @@ copyCard: {
 
 
           if (
-            group.groupActionCard
+            group.groupScopeCard
           ) {
-            group.groupActionCard
+            group.groupScopeCard
               .element =
                 target.card
                   .element;
@@ -12984,6 +13711,10 @@ copyCard: {
                 null;
             }
 
+            disconnectObserver(
+              card.currentCardObserver
+            );
+
             try {
               card.element
                 .remove();
@@ -13119,6 +13850,23 @@ copyCard: {
                   ? rowElement._hccRow
                   : 0;
 
+              const rowIndent =
+                rowElement._hccKind ===
+                  "output"
+                  ? outputIndent
+                  : commandIndent;
+
+              const rowContentColumns =
+                Math.max(
+                  1,
+                  (
+                    Number(
+                      this.xterm.cols
+                    ) || 1
+                  ) -
+                    rowIndent * 2
+                );
+
               Object.assign(
                 rowElement.style,
                 {
@@ -13135,27 +13883,25 @@ copyCard: {
                     `${screenOffset}px`,
 
                   width:
-                    rowElement._hccKind ===
-                      "output"
-                      ? `${Math.max(
-                          0,
-                          this.screenWidth -
-                            screenOffset
-                        )}px`
-                      : "max-content",
+                    `${Math.max(
+                      0,
+                      this.screenWidth
+                    )}px`,
 
                   maxWidth:
                     `${Math.max(
                       0,
-                      this.screenWidth -
-                        screenOffset
+                      this.screenWidth
                     )}px`,
 
                   paddingRight:
-                    `${Math.max(
-                      1,
-                      this.cellWidth
-                    )}px`,
+                    `${
+                      rowIndent *
+                      Math.max(
+                        1,
+                        this.cellWidth
+                      )
+                    }px`,
 
                   top:
                     `${Math.max(
@@ -13169,19 +13915,20 @@ copyCard: {
                     `${this.cellHeight}px`,
 
                   paddingLeft:
-                      `${
-                        (
-                          rowElement._hccKind ===
-                            "output"
-                            ? outputIndent
-                            : commandIndent
-                        ) *
-                        this.cellWidth
-                      }px`,
+                    `${
+                      rowIndent *
+                      this.cellWidth
+                    }px`,
 
                   lineHeight:
                     `${this.cellHeight}px`,
                 }
+              );
+
+              fitTerminalRowText(
+                rowElement,
+                this.cellWidth,
+                rowContentColumns
               );
             }
           }
