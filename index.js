@@ -3879,6 +3879,12 @@ exports.decorateTerm =
         this.commentModeSynced =
           false;
 
+        this.shellInputReady =
+          false;
+
+        this.pendingCommentModeSync =
+          false;
+
         this.pendingGroup =
           null;
 
@@ -9928,6 +9934,13 @@ copyCard: {
       }
 
       syncCommentModeToShell() {
+        if (!this.shellInputReady) {
+          this.pendingCommentModeSync =
+            true;
+
+          return;
+        }
+
         const showComments =
           readHccBooleanPreference(
             HCC_SHOW_COMMENT_LINES_KEY
@@ -9940,15 +9953,26 @@ copyCard: {
 
         try {
           if (
-            this.props &&
-            typeof this.props.onData ===
+            !this.props ||
+            typeof this.props.onData !==
               "function"
           ) {
-            this.props.onData(
-              sequence
-            );
+            this.pendingCommentModeSync =
+              true;
+
+            return;
           }
-        } catch {}
+
+          this.props.onData(
+            sequence
+          );
+
+          this.pendingCommentModeSync =
+            false;
+        } catch {
+          this.pendingCommentModeSync =
+            true;
+        }
       }
 
 
@@ -10036,6 +10060,9 @@ copyCard: {
             return true;
           }
 
+          this.shellInputReady =
+            false;
+
           const values =
             cursorMatch
               .slice(1)
@@ -10110,6 +10137,9 @@ copyCard: {
             return true;
           }
 
+          this.shellInputReady =
+            false;
+
           this.outputIndentColumns =
             Math.max(
               0,
@@ -10178,13 +10208,28 @@ copyCard: {
         }
 
         if (payload === "ready") {
+          this.shellInputReady =
+            true;
+
           if (!this.commentModeSynced) {
             this.commentModeSynced =
               true;
 
             this
               .syncCommentModeToShell();
+          } else if (
+            this.pendingCommentModeSync
+          ) {
+            this
+              .syncCommentModeToShell();
           }
+
+          return true;
+        }
+
+        if (payload === "busy") {
+          this.shellInputReady =
+            false;
 
           return true;
         }
@@ -10317,6 +10362,9 @@ copyCard: {
           if (!awaitingOutput) {
             return true;
           }
+
+          this.shellInputReady =
+            false;
 
           this.markOutput();
 

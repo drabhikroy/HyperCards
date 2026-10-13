@@ -250,6 +250,9 @@ add-zsh-hook precmd _hcc_split_starship_prompt
 _hcc_accept_line() {
   emulate -L zsh
 
+  printf '\e]777;hcc;%s;busy\a' \
+    "$HCC_SESSION_TOKEN"
+
   if [[ $BUFFER != *$'\n'* ]]; then
     zle .accept-line
     return
@@ -360,7 +363,8 @@ _hcc_accept_line() {
 _hcc_line_init() {
   emulate -L zsh
 
-
+  printf '\e]777;hcc;%s;ready\a' \
+    "$HCC_SESSION_TOKEN"
 
   if (( ${#HCC_COMMAND_QUEUE[@]} == 0 )); then
     return
@@ -372,10 +376,6 @@ _hcc_line_init() {
   HCC_EXPECTED_GROUP_COMMAND="$hcc_next"
 
   zle -U "$hcc_next"$'\n'
-
-  printf '\e]777;hcc;%s;ready\a' \
-    "$HCC_SESSION_TOKEN"
-
 }
 
 _hcc_comments_show() {
