@@ -4151,6 +4151,9 @@ exports.decorateTerm =
               .scrollHandler,
 
             this
+              .selectionHandler,
+
+            this
               .renderHandler,
           ]
         ) {
@@ -8723,6 +8726,134 @@ exports.decorateTerm =
 
         if (
           typeof this.xterm
+            .onSelectionChange ===
+          "function"
+        ) {
+          this.selectionHandler =
+            this.xterm
+              .onSelectionChange(
+                () => {
+                  this
+                    .syncTerminalSelectionPresentation();
+                }
+              );
+        }
+
+        if (this.xterm.element) {
+          const selectionElement =
+            this.xterm.element;
+
+          let selectionDragging =
+            false;
+
+          let selectionDragFrame =
+            0;
+
+          const syncSelectionDrag =
+            () => {
+              selectionDragFrame =
+                0;
+
+              this
+                .syncTerminalSelectionPresentation();
+
+              if (selectionDragging) {
+                selectionDragFrame =
+                  requestAnimationFrame(
+                    syncSelectionDrag
+                  );
+              }
+            };
+
+          const handleSelectionMouseDown =
+            (event) => {
+              if (
+                !event ||
+                event.button !== 0
+              ) {
+                return;
+              }
+
+              selectionDragging =
+                true;
+
+              if (!selectionDragFrame) {
+                selectionDragFrame =
+                  requestAnimationFrame(
+                    syncSelectionDrag
+                  );
+              }
+            };
+
+          const handleSelectionMouseUp =
+            () => {
+              if (!selectionDragging) {
+                return;
+              }
+
+              selectionDragging =
+                false;
+
+              if (selectionDragFrame) {
+                cancelAnimationFrame(
+                  selectionDragFrame
+                );
+
+                selectionDragFrame =
+                  0;
+              }
+
+              this
+                .syncTerminalSelectionPresentation();
+            };
+
+          selectionElement
+            .addEventListener(
+              "mousedown",
+              handleSelectionMouseDown
+            );
+
+          window
+            .addEventListener(
+              "mouseup",
+              handleSelectionMouseUp
+            );
+
+          this.redrawHandlers
+            .push({
+              dispose:
+                () => {
+                  selectionDragging =
+                    false;
+
+                  if (
+                    selectionDragFrame
+                  ) {
+                    cancelAnimationFrame(
+                      selectionDragFrame
+                    );
+
+                    selectionDragFrame =
+                      0;
+                  }
+
+                  selectionElement
+                    .removeEventListener(
+                      "mousedown",
+                      handleSelectionMouseDown
+                    );
+
+                  window
+                    .removeEventListener(
+                      "mouseup",
+                      handleSelectionMouseUp
+                    );
+                },
+            });
+        }
+
+        if (
+          typeof this.xterm
             .onRender ===
           "function"
         ) {
@@ -8741,6 +8872,441 @@ exports.decorateTerm =
 
         this
           .scheduleGeometryUpdate();
+      }
+
+
+      paintTerminalRowSelection(
+        rowElement,
+        startColumn,
+        endColumn,
+        selectionBackground,
+        selectionForeground
+      ) {
+        if (
+          !rowElement ||
+          !rowElement._hccTextSpan
+        ) {
+          return;
+        }
+
+        const span =
+          rowElement._hccTextSpan;
+
+        const value =
+          String(
+            rowElement._hccText || ""
+          );
+
+        const characters =
+          Array.from(
+            value
+          );
+
+        const from =
+          Math.max(
+            0,
+            Math.min(
+              characters.length,
+              Number.isFinite(
+                startColumn
+              )
+                ? startColumn
+                : 0
+            )
+          );
+
+        const to =
+          Math.max(
+            from,
+            Math.min(
+              characters.length,
+              Number.isFinite(
+                endColumn
+              )
+                ? endColumn
+                : characters.length
+            )
+          );
+
+        if (to <= from) {
+          span.textContent =
+            value;
+
+          return;
+        }
+
+        const before =
+          characters
+            .slice(
+              0,
+              from
+            )
+            .join("");
+
+        const selected =
+          characters
+            .slice(
+              from,
+              to
+            )
+            .join("");
+
+        const after =
+          characters
+            .slice(
+              to
+            )
+            .join("");
+
+        const selectedSpan =
+          document
+            .createElement(
+              "span"
+            );
+
+        selectedSpan.textContent =
+          selected;
+
+        Object.assign(
+          selectedSpan.style,
+          {
+            background:
+              selectionBackground,
+
+            color:
+              selectionForeground,
+          }
+        );
+
+        span.replaceChildren(
+          document.createTextNode(
+            before
+          ),
+          selectedSpan,
+          document.createTextNode(
+            after
+          )
+        );
+      }
+
+
+      syncTerminalSelectionPresentation(
+        targetCard = null
+      ) {
+        if (!this.xterm) {
+          return;
+        }
+
+        const cards =
+          targetCard
+            ? [targetCard]
+            : this.cards;
+
+        let range =
+          null;
+
+        try {
+          if (
+            typeof this.xterm
+              .getSelectionPosition ===
+              "function"
+          ) {
+            range =
+              this.xterm
+                .getSelectionPosition();
+          }
+        } catch {}
+
+        const terminalOptions =
+          this.xterm.options ||
+          {};
+
+        const terminalTheme =
+          terminalOptions.theme ||
+          {};
+
+        const selectionBackground =
+          terminalTheme
+            .selectionBackground ||
+          terminalTheme
+            .selection ||
+          "rgba(55, 82, 105, 0.90)";
+
+        const selectionForeground =
+          terminalTheme
+            .selectionForeground ||
+          terminalTheme
+            .foreground ||
+          "#E6E8EA";
+
+        const readSelectionCoordinate =
+          (
+            pointName,
+            axis,
+            flatName
+          ) => {
+            if (!range) {
+              return null;
+            }
+
+            const point =
+              range[pointName];
+
+            if (
+              point &&
+              typeof point ===
+                "object"
+            ) {
+              if (
+                Number.isFinite(
+                  point[axis]
+                )
+              ) {
+                return point[axis];
+              }
+
+              const index =
+                axis === "x"
+                  ? 0
+                  : 1;
+
+              if (
+                Array.isArray(
+                  point
+                ) &&
+                Number.isFinite(
+                  point[index]
+                )
+              ) {
+                return point[index];
+              }
+            }
+
+            if (
+              Number.isFinite(
+                range[flatName]
+              )
+            ) {
+              return range[
+                flatName
+              ];
+            }
+
+            return null;
+          };
+
+        const startRowValue =
+          readSelectionCoordinate(
+            "start",
+            "y",
+            "startRow"
+          );
+
+        const endRowValue =
+          readSelectionCoordinate(
+            "end",
+            "y",
+            "endRow"
+          );
+
+        const startColumnValue =
+          readSelectionCoordinate(
+            "start",
+            "x",
+            "startColumn"
+          );
+
+        const endColumnValue =
+          readSelectionCoordinate(
+            "end",
+            "x",
+            "endColumn"
+          );
+
+        const hasSelectionRange =
+          [
+            startRowValue,
+            endRowValue,
+            startColumnValue,
+            endColumnValue,
+          ].every(
+            Number.isFinite
+          );
+
+        const startRow =
+          hasSelectionRange
+            ? Math.max(
+                0,
+                startRowValue
+              )
+            : -1;
+
+        const endRow =
+          hasSelectionRange
+            ? Math.max(
+                0,
+                endRowValue
+              )
+            : -1;
+
+        const startColumn =
+          hasSelectionRange
+            ? Math.max(
+                0,
+                startColumnValue
+              )
+            : 0;
+
+        const endColumn =
+          hasSelectionRange
+            ? Math.max(
+                0,
+                endColumnValue
+              )
+            : 0;
+
+        for (const card of cards) {
+          if (
+            !card ||
+            !card.start ||
+            card.start.isDisposed
+          ) {
+            continue;
+          }
+
+          const rowElements = [
+            ...(
+              Array.isArray(
+                card.wrappedCommandRowElements
+              )
+                ? card.wrappedCommandRowElements
+                : []
+            ),
+            ...(
+              Array.isArray(
+                card.outputRowElements
+              )
+                ? card.outputRowElements
+                : []
+            ),
+          ];
+
+          for (
+            const rowElement
+            of rowElements
+          ) {
+            if (
+              !rowElement ||
+              !Number.isFinite(
+                rowElement._hccRow
+              )
+            ) {
+              continue;
+            }
+
+            const absoluteRow =
+              card.start.line +
+              rowElement._hccRow;
+
+            const indent =
+              rowElement._hccKind ===
+                "output"
+                ? (
+                    Number.isFinite(
+                      rowElement
+                        ._hccIndentColumns
+                    )
+                      ? rowElement
+                          ._hccIndentColumns
+                      : 0
+                  )
+                : (
+                    Number.isFinite(
+                      card.commandIndentColumns
+                    )
+                      ? card
+                          .commandIndentColumns
+                      : 0
+                  );
+
+            if (
+              !hasSelectionRange ||
+              absoluteRow <
+                startRow ||
+              absoluteRow >
+                endRow
+            ) {
+              this
+                .paintTerminalRowSelection(
+                  rowElement,
+                  0,
+                  0,
+                  selectionBackground,
+                  selectionForeground
+                );
+
+              continue;
+            }
+
+            let rowStart =
+              0;
+
+            let rowEnd =
+              Number(
+                this.xterm.cols
+              ) || 0;
+
+            if (
+              absoluteRow ===
+                startRow
+            ) {
+              rowStart =
+                startColumn;
+            }
+
+            if (
+              absoluteRow ===
+                endRow
+            ) {
+              rowEnd =
+                endColumn;
+            }
+
+            if (
+              startRow ===
+                endRow
+            ) {
+              rowStart =
+                startColumn;
+
+              rowEnd =
+                endColumn;
+            }
+
+            const localStart =
+              Math.max(
+                0,
+                rowStart -
+                  indent
+              );
+
+            const localEnd =
+              Math.max(
+                0,
+                rowEnd -
+                  indent
+              );
+
+            this
+              .paintTerminalRowSelection(
+                rowElement,
+                localStart,
+                localEnd,
+                selectionBackground,
+                selectionForeground
+              );
+          }
+        }
       }
 
 
@@ -12911,6 +13477,11 @@ copyCard: {
                 1,
                 card.commandRows || 1
               );
+
+        this
+          .syncTerminalSelectionPresentation(
+            card
+          );
       }
 
 
